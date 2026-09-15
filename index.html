@@ -4127,7 +4127,7 @@
       if (!Array.isArray(db.trainers)) { db.trainers = [...TRAINER_POOL]; migrated = true; }
 
       /* ---- Rename legacy admin display name to "Admin" ---- */
-      if (db.admin && db.admin.name === "Admin") {
+      if (db.admin && db.admin.name !== "Admin") {
         db.admin.name = "Admin";
         db.admin.photoInitials = "AD";
         migrated = true;
