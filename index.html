@@ -6884,6 +6884,7 @@
     /* ---------- Admin ---------- */
     function renderAdmin(mount) {
       const db = App.db;
+      const selectedEmpIds = new Set();
       mount.innerHTML = `
     <div class="page-head"><div><h1>Employee Management</h1><p class="muted">Add, edit, search and manage employee records</p></div>
       <div style="display:flex; gap:10px; flex-wrap:wrap;">
@@ -6895,32 +6896,69 @@
       <input id="adminSearch" placeholder="Search by name or ID..." class="input-inline"/>
       <select id="adminDept" class="select">${deptOptions("All")}</select>
     </div>
+    <div id="bulkActionBar" style="display:none; align-items:center; gap:12px; background:var(--primary-light); border:1px solid var(--border); border-radius:12px; padding:10px 16px; margin-bottom:14px;">
+      <span id="bulkCountLabel" style="font-weight:700; color:var(--primary);"></span>
+      <button class="btn-primary" id="bulkAssignBtn">📌 Assign Training to Selected</button>
+      <button class="btn-outline" id="bulkClearBtn">Clear Selection</button>
+    </div>
     <div id="adminTable"></div>`;
+      function updateBulkBar() {
+        const bar = document.getElementById("bulkActionBar");
+        const n = selectedEmpIds.size;
+        bar.style.display = n > 0 ? "flex" : "none";
+        document.getElementById("bulkCountLabel").textContent = `${n} employee${n > 1 ? 's' : ''} selected`;
+      }
       function refresh() {
         const q = (document.getElementById("adminSearch").value || "").toLowerCase();
         const d = document.getElementById("adminDept").value;
         let list = db.employees.filter(e => (!q || e.name.toLowerCase().includes(q) || e.id.toLowerCase().includes(q)) && (d === "All" || e.department === d));
+        const visibleIds = list.map(e => e.id);
+        [...selectedEmpIds].forEach(id => { if (!visibleIds.includes(id)) selectedEmpIds.delete(id); });
         document.getElementById("adminTable").innerHTML = table(
-          ["Employee ID", "Name", "Department", "Designation", "Type", "Actions"],
+          [`<input type="checkbox" id="selectAllEmpChk"/>`, "Employee ID", "Name", "Department", "Designation", "Type", "Actions"],
           list.slice(0, 100).map(e => `<tr>
+        <td><input type="checkbox" class="emp-row-chk" data-id="${e.id}" ${selectedEmpIds.has(e.id) ? 'checked' : ''}/></td>
         <td>${e.id}</td><td>${e.name}</td><td>${e.department}</td><td>${e.designation}</td><td>${e.empType}</td>
         <td><button class="btn-small view-emp" data-id="${e.id}">View</button> <button class="btn-small edit-emp" data-id="${e.id}">Edit</button> <button class="btn-small assign-train-emp" data-id="${e.id}">Assign Training</button> <button class="btn-small danger delete-emp" data-id="${e.id}">Delete</button></td>
       </tr>`)
         );
+        document.getElementById("view-emp"); // no-op guard (kept for diff clarity)
         document.querySelectorAll(".view-emp").forEach(b => b.onclick = () => openEmployeeProfile(b.dataset.id));
         document.querySelectorAll(".edit-emp").forEach(b => b.onclick = () => openEditEmployee(b.dataset.id, refresh));
         document.querySelectorAll(".assign-train-emp").forEach(b => b.onclick = () => openAssignTraining(b.dataset.id, refresh));
         document.querySelectorAll(".delete-emp").forEach(b => b.onclick = () => {
           if (confirm("Remove this employee record?")) {
             db.employees = db.employees.filter(e => e.id !== b.dataset.id);
+            selectedEmpIds.delete(b.dataset.id);
             saveDB(db); toast("Employee removed."); refresh();
           }
         });
+        document.querySelectorAll(".emp-row-chk").forEach(chk => {
+          chk.onchange = () => {
+            if (chk.checked) selectedEmpIds.add(chk.dataset.id); else selectedEmpIds.delete(chk.dataset.id);
+            const selectAll = document.getElementById("selectAllEmpChk");
+            if (selectAll) selectAll.checked = list.length > 0 && list.every(e => selectedEmpIds.has(e.id));
+            updateBulkBar();
+          };
+        });
+        const selectAllChk = document.getElementById("selectAllEmpChk");
+        selectAllChk.checked = list.length > 0 && list.every(e => selectedEmpIds.has(e.id));
+        selectAllChk.onchange = () => {
+          if (selectAllChk.checked) list.forEach(e => selectedEmpIds.add(e.id));
+          else list.forEach(e => selectedEmpIds.delete(e.id));
+          refresh();
+        };
+        updateBulkBar();
       }
       document.getElementById("adminSearch").oninput = refresh;
-      document.getElementById("adminDept").onchange = refresh;
+      document.getElementById("adminDept").onchange = () => { selectedEmpIds.clear(); refresh(); };
       document.getElementById("addEmpBtn").onclick = () => openEditEmployee(null, refresh);
       document.getElementById("importEmpBtn").onclick = () => openImportExcel(refresh);
+      document.getElementById("bulkClearBtn").onclick = () => { selectedEmpIds.clear(); refresh(); };
+      document.getElementById("bulkAssignBtn").onclick = () => {
+        if (!selectedEmpIds.size) return;
+        openBulkAssignTraining([...selectedEmpIds], () => { selectedEmpIds.clear(); refresh(); });
+      };
       refresh();
     }
 
@@ -7320,7 +7358,86 @@
         }
       });
     }
+    /* ---------- Bulk Assign Training (multiple selected employees) ---------- */
+    function openBulkAssignTraining(empIds, onSave) {
+      const db = App.db;
+      db.venues = db.venues || [...TRAINING_VENUES];
+      db.trainers = db.trainers || [...TRAINER_POOL];
+      const emps = empIds.map(id => db.employees.find(e => e.id === id)).filter(Boolean);
+      if (!emps.length) return;
+      const depts = [...new Set(emps.map(e => e.department))];
+      const courseList = (db.courses || []).filter(c => depts.some(d => courseVisibleToDept(c, d)));
+      if (!courseList.length) {
+        openModal("Assign Training — " + emps.length + " Employees", `<p class="muted">No training topic exists for the selected department(s) (${depts.join(', ')}) yet. Please add a topic in the E-Learning Center first.</p>`);
+        return;
+      }
+      openModal("Assign Training — " + emps.length + " Employees Selected", `
+    <p class="muted" style="margin-bottom:10px;">Departments in selection: <b>${depts.join(', ')}</b>. Only employees whose department matches the chosen subject (or subjects marked "All Departments") will be assigned.</p>
+    <div class="form-grid">
+      <label>Subject / Course<select id="atCourse">${courseList.map(c => `<option value="${c.id}">${c.title} (${c.dept === 'All' ? 'All Depts' : c.dept})</option>`).join('')}</select></label>
+      <label>Training Date<input type="date" id="atDate" min="${fmtDate(appToday())}" value="${fmtDate(addDays(appToday(), 7))}"/></label>
+      <label>Time<select id="atTime">${TRAINING_TIMES.map(tm => `<option>${tm}</option>`).join('')}</select></label>
+      <label>Location / Venue<select id="atVenue">${atOptionsHtml(db.venues)}</select></label>
+      <label>Trainer<select id="atTrainer">${atOptionsHtml(db.trainers)}</select></label>
+    </div>
+    <div id="bulkSkipNote"></div>
+    <button class="btn-primary" id="atBulkSaveBtn">Assign Training to ${emps.length} Employees</button>
+  `, {
+        onOpen: (box) => {
+          box.querySelector("#atBulkSaveBtn").onclick = () => {
+            const courseId = box.querySelector("#atCourse").value;
+            const dateVal = box.querySelector("#atDate").value;
+            const time = box.querySelector("#atTime").value;
+            const venue = box.querySelector("#atVenue").value;
+            const trainer = box.querySelector("#atTrainer").value;
+            if (!dateVal) { toast("Please select a training date."); return; }
+            const course = db.courses.find(c => c.id === courseId);
+            const trDate = new Date(dateVal);
+            const status = trDate < appToday() ? "Completed" : (trDate < addDays(appToday(), 14) ? "Upcoming" : "Planned");
 
+            let assigned = 0, skipped = 0;
+            emps.forEach(emp => {
+              if (!courseVisibleToDept(course, emp.department)) { skipped++; return; }
+              let session = db.schedule.find(s => s.courseId === courseId && s.date === dateVal && s.venue === venue && s.time === time);
+              if (!session) {
+                const maxNum = db.schedule.reduce((m, s) => Math.max(m, parseInt((s.id || "").replace("TRN", "")) || 0), 0);
+                session = {
+                  id: "TRN" + pad(maxNum + 1, 3), title: course.title + " Training", courseId: course.id, department: course.dept,
+                  date: dateVal, time, venue, duration: course.duration, trainer, participants: [], status
+                };
+                db.schedule.push(session);
+              } else {
+                session.status = status;
+              }
+              if (!session.participants.includes(emp.id)) session.participants.push(emp.id);
+
+              emp.trainingRecords = emp.trainingRecords || [];
+              let tr = emp.trainingRecords.find(r => r.trainingId === session.id);
+              if (!tr) {
+                tr = { trainingId: session.id, title: session.title, courseId: session.courseId, department: session.department, date: session.date, status: status, completedDate: null };
+                emp.trainingRecords.push(tr);
+              } else {
+                tr.date = session.date; tr.status = status;
+              }
+
+              emp.notifications = emp.notifications || [];
+              emp.notifications.unshift({
+                id: "NA" + emp.id + session.id + Date.now(), type: "training_assigned", read: false, date: fmtDate(appToday()),
+                title: "Training Assigned",
+                body: `You have been assigned to "${session.title}" on ${session.date} at ${session.time}, ${session.venue}.`,
+                sms: `Dear ${emp.id}, you are scheduled for "${session.title}" on ${session.date} at ${session.time}.`
+              });
+              assigned++;
+            });
+
+            saveDB(db);
+            closeModal();
+            toast(`Training assigned to ${assigned} employee(s)${skipped ? `, ${skipped} skipped (department mismatch)` : ''}.`);
+            if (onSave) onSave();
+          };
+        }
+      });
+    }
   </script>
   <script>
     document.addEventListener('DOMContentLoaded', initApp);
