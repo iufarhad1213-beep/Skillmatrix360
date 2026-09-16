@@ -837,6 +837,63 @@
       box-shadow: 0 6px 16px rgba(155, 27, 46, 0.28);
     }
 
+    .nav-group-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: background .15s, color .15s;
+    }
+
+    .nav-group-header:hover {
+      background: var(--primary-light);
+      color: var(--primary);
+    }
+
+    .nav-group-header .nicon {
+      font-size: 15px;
+      width: 20px;
+      text-align: center;
+    }
+
+    .nav-group-chevron {
+      margin-left: auto;
+      font-size: 11px;
+      transition: transform .2s;
+    }
+
+    .nav-group.open .nav-group-chevron {
+      transform: rotate(90deg);
+    }
+
+    .nav-group.open .nav-group-header {
+      color: var(--primary);
+    }
+
+    .nav-sublist {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height .2s ease;
+      padding-left: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .nav-group.open .nav-sublist {
+      max-height: 260px;
+    }
+
+    .navlink-sub {
+      font-size: 13px;
+      padding: 8px 12px;
+    }
+
     .sidebar-footer {
       padding-top: 14px;
       border-top: 1px solid var(--border);
@@ -4146,6 +4203,20 @@
         if (!DESIGNATIONS[d]) DESIGNATIONS[d] = ["Executive", "Officer", "Supervisor", "Manager"];
       });
 
+      /* ---- Job Role & Skill Requirements: seed defaults, add rows for any new dept/skill ---- */
+      db.jobRoles = db.jobRoles || [];
+      let jrMaxNum = db.jobRoles.reduce((m, r) => Math.max(m, parseInt((r.id || "").replace("JR", "")) || 0), 0);
+      DEPARTMENTS.forEach(d => {
+        const desig = (DESIGNATIONS[d] || ["Executive"])[0];
+        (SKILLS_BY_DEPT[d] || []).forEach(sk => {
+          const exists = db.jobRoles.some(r => r.department === d && r.skill === sk);
+          if (!exists) {
+            db.jobRoles.push({ id: "JR" + pad(++jrMaxNum, 3), jobRole: desig, department: d, skill: sk, requiredLevel: 2, qualification: "SSC" });
+            migrated = true;
+          }
+        });
+      });
+
       assignLoginIds(db);
       return { db, migrated };
     }
@@ -4181,6 +4252,7 @@
     function saveDB(db) {
       assignLoginIds(db);
       db.departments = [...DEPARTMENTS];
+      db.jobRoles = db.jobRoles || [];
       localStorage.setItem(DB_KEY, JSON.stringify(db));
       pushToCloud(db);
     }
@@ -4476,7 +4548,16 @@
       ],
       admin: [
         ["#/overview", "🏠", "nav_overview"], ["#/manpower", "👥", "nav_manpower"],
-        ["#/skillmatrix", "🧩", "nav_skillmatrix"], ["#/traininggap", "⚠", "nav_traininggap"],
+        {
+          group: true, key: "competency", icon: "🛡️", label: "Competency", items: [
+            ["#/skillmatrix", "📊", "Skill Matrix"],
+            ["#/jobroles", "📋", "Job Role & Skill Requirements"],
+            ["#/competency", "⚙️", "Competency"],
+            ["#/competencyvalidation", "✅", "Competency Validation"],
+            ["#/authorizedpersonnel", "🛡️", "Authorized Personnel"],
+          ]
+        },
+        ["#/traininggap", "⚠", "nav_traininggap"],
         ["#/schedule", "📅", "nav_schedule"], ["#/annualplan", "📆", "nav_annualplan"],
         ["#/elearning", "📚", "nav_elearning"], ["#/assessments", "📝", "nav_assessments"],
         ["#/attendance", "✅", "nav_attendance"], ["#/analytics", "📊", "nav_analytics"],
@@ -4537,12 +4618,29 @@
     function renderNav(role) {
       const list = NAV[role] || NAV.employee;
       const nav = document.getElementById("navList");
-      nav.innerHTML = list.map(([hash, icon, key]) => `<a href="${hash}" class="navlink" data-hash="${hash}"><span class="nicon">${icon}</span>${t(key)}</a>`).join('');
+      nav.innerHTML = list.map(item => {
+        if (item.group) {
+          const subHtml = item.items.map(([hash, icon, label]) => `<a href="${hash}" class="navlink navlink-sub" data-hash="${hash}"><span class="nicon">${icon}</span>${label}</a>`).join('');
+          return `<div class="nav-group" data-group="${item.key}">
+            <div class="nav-group-header"><span class="nicon">${item.icon}</span>${item.label}<span class="nav-group-chevron">▸</span></div>
+            <div class="nav-sublist">${subHtml}</div>
+          </div>`;
+        }
+        const [hash, icon, key] = item;
+        return `<a href="${hash}" class="navlink" data-hash="${hash}"><span class="nicon">${icon}</span>${t(key)}</a>`;
+      }).join('');
+      document.querySelectorAll(".nav-group-header").forEach(h => {
+        h.onclick = () => h.parentElement.classList.toggle("open");
+      });
       highlightNav();
     }
     function highlightNav() {
       document.querySelectorAll(".navlink").forEach(a => {
         a.classList.toggle("active", location.hash.startsWith(a.dataset.hash));
+      });
+      document.querySelectorAll(".nav-group").forEach(g => {
+        const hasActive = [...g.querySelectorAll(".navlink-sub")].some(a => a.classList.contains("active"));
+        if (hasActive) g.classList.add("open");
       });
     }
     function navigate(hash) { location.hash = hash; }
@@ -4599,6 +4697,8 @@
       if (!content) return;
       const routes = {
         overview: renderOverview, manpower: renderManpower, skillmatrix: renderSkillMatrix,
+        jobroles: renderJobRoles, competency: renderCompetency,
+        competencyvalidation: renderCompetencyValidation, authorizedpersonnel: renderAuthorizedPersonnel,
         traininggap: renderTrainingGap, elearning: renderElearning, course: () => renderCourseDetail(param),
         mytraining: renderMyTraining, assessments: renderAssessments,
         assessmentrun: () => renderAssessmentRun(param), result: () => renderResult(param),
@@ -5301,7 +5401,131 @@
       DEPARTMENTS.forEach(d => byDept[d] = rows.filter(r => r.dept === d).length);
       chart("chartGapDept", "bar", { labels: Object.keys(byDept), datasets: [{ label: "Open Gaps", data: Object.values(byDept), backgroundColor: "#EF4444" }] });
     }
+    /* ---------- Job Role & Skill Requirements ---------- */
+    function applyRequiredLevelToEmployees(department, skill, newLevel) {
+      App.db.employees.forEach(e => {
+        if (e.department !== department) return;
+        const sk = e.skills.find(s => s.skill === skill);
+        if (sk) { sk.required = newLevel; sk.gap = Math.max(0, newLevel - sk.current); }
+      });
+    }
+    function renderJobRoles(mount) {
+      const db = App.db;
+      db.jobRoles = db.jobRoles || [];
+      const dept = App.state.jobRoleDeptFilter || "All";
+      mount.innerHTML = `
+    <div class="page-head">
+      <div><h1>Job Role &amp; Skill Requirements</h1><p class="muted">Required skill level per job role — editing "Required Level" auto-updates the Skill Matrix &amp; Training Gap for all matching employees</p></div>
+      <select id="jrDeptSelect" class="select">${deptOptions(dept)}</select>
+    </div>
+    <div id="jobRoleTable"></div>`;
+      document.getElementById("jrDeptSelect").onchange = (e) => { App.state.jobRoleDeptFilter = e.target.value; renderJobRoles(mount); };
+      const rows = dept === "All" ? db.jobRoles : db.jobRoles.filter(r => r.department === dept);
+      document.getElementById("jobRoleTable").innerHTML = table(
+        ["Job Role", "Department", "Required Skill", "Required Level", "Qualification", "Action"],
+        rows.map(r => `<tr>
+      <td>${r.jobRole}</td><td>${r.department}</td><td>${r.skill}</td>
+      <td><b>${r.requiredLevel}</b></td><td>${r.qualification}</td>
+      <td><button class="btn-small edit-jr-btn" data-id="${r.id}">Edit</button></td>
+    </tr>`)
+      );
+      document.querySelectorAll(".edit-jr-btn").forEach(b => b.onclick = () => openEditJobRole(b.dataset.id, mount));
+    }
+    function openEditJobRole(id, mount) {
+      const db = App.db;
+      const row = db.jobRoles.find(r => r.id === id);
+      if (!row) return;
+      openModal("Edit Job Role Requirement", `
+    <div class="form-grid">
+      <label>Job Role<input id="jrJobRole" value="${row.jobRole}"/></label>
+      <label>Department<span style="padding:10px 0; display:block; font-weight:600;">${row.department}</span></label>
+      <label>Required Skill<span style="padding:10px 0; display:block; font-weight:600;">${row.skill}</span></label>
+      <label>Required Level<select id="jrLevel">${[1, 2, 3, 4, 5].map(v => `<option value="${v}" ${row.requiredLevel === v ? 'selected' : ''}>Level ${v}</option>`).join('')}</select></label>
+      <label>Qualification<select id="jrQual">${["SSC", "HSC", "Diploma", "Bachelor's", "Master's"].map(q => `<option ${row.qualification === q ? 'selected' : ''}>${q}</option>`).join('')}</select></label>
+    </div>
+    <p class="muted">Changing the Required Level will update this skill's requirement for every ${row.department} employee, recalculating their gap and status automatically.</p>
+    <button class="btn-primary" id="jrSaveBtn">Save Changes</button>
+  `, {
+        onOpen: (box) => {
+          box.querySelector("#jrSaveBtn").onclick = () => {
+            row.jobRole = box.querySelector("#jrJobRole").value.trim() || row.jobRole;
+            row.qualification = box.querySelector("#jrQual").value;
+            const newLevel = parseInt(box.querySelector("#jrLevel").value);
+            const levelChanged = newLevel !== row.requiredLevel;
+            row.requiredLevel = newLevel;
+            if (levelChanged) applyRequiredLevelToEmployees(row.department, row.skill, newLevel);
+            saveDB(db);
+            closeModal();
+            toast(levelChanged ? "Requirement updated — skill matrix recalculated." : "Requirement updated.");
+            renderJobRoles(mount);
+          };
+        }
+      });
+    }
 
+    /* ---------- Competency Overview ---------- */
+    function renderCompetency(mount) {
+      const db = App.db;
+      const rows = [];
+      db.employees.forEach(e => e.skills.forEach(sk => rows.push(sk)));
+      const competent = rows.filter(s => s.gap <= 0).length;
+      const dev = rows.filter(s => s.gap === 1).length;
+      const critical = rows.filter(s => s.gap >= 2).length;
+      mount.innerHTML = `<div class="page-head"><div><h1>Competency</h1><p class="muted">Organization-wide competency band overview</p></div></div>
+    <div class="kpi-grid">
+      ${kpiCard("🟢", "Competent", competent)}
+      ${kpiCard("🟡", "Development Required", dev)}
+      ${kpiCard("🔴", "Critical Gap", critical)}
+      ${kpiCard("📊", "Overall Competency %", pct(competent, rows.length) + "%")}
+    </div>
+    <div class="panel"><h3>Competency by Department</h3><div id="compDeptTable"></div></div>`;
+      const deptRows = DEPARTMENTS.map(d => {
+        const sk = [];
+        db.employees.filter(e => e.department === d).forEach(e => e.skills.forEach(s => sk.push(s)));
+        return `<tr><td>${d}</td><td>${sk.filter(s => s.gap <= 0).length}</td><td>${sk.filter(s => s.gap === 1).length}</td><td>${sk.filter(s => s.gap >= 2).length}</td><td>${pct(sk.filter(s => s.gap <= 0).length, sk.length)}%</td></tr>`;
+      });
+      document.getElementById("compDeptTable").innerHTML = table(["Department", "Competent", "Development", "Critical", "Competency %"], deptRows);
+    }
+
+    /* ---------- Competency Validation ---------- */
+    function renderCompetencyValidation(mount) {
+      const db = App.db;
+      const pending = [];
+      db.employees.forEach(e => e.skills.forEach(sk => {
+        if (sk.gap > 0) {
+          const course = db.courses.find(c => c.title === sk.skill);
+          const passed = course && (e.attempts[course.id] || []).some(a => a.type === 'post' && a.passed);
+          if (passed) pending.push({ emp: e, sk });
+        }
+      }));
+      mount.innerHTML = `<div class="page-head"><div><h1>Competency Validation</h1><p class="muted">Skills passed via assessment awaiting sign-off</p></div></div>
+    <div id="valTable"></div>`;
+      document.getElementById("valTable").innerHTML = pending.length ? table(
+        ["Employee ID", "Name", "Department", "Skill", "Current Level", "Required Level", "Action"],
+        pending.map((p, i) => `<tr><td>${p.emp.id}</td><td>${p.emp.name}</td><td>${p.emp.department}</td><td>${p.sk.skill}</td><td>Level ${p.sk.current}</td><td>Level ${p.sk.required}</td><td><button class="btn-small validate-btn" data-i="${i}">Validate</button></td></tr>`)
+      ) : '<p class="muted">No pending validations.</p>';
+      document.querySelectorAll(".validate-btn").forEach(b => {
+        b.onclick = () => {
+          const p = pending[b.dataset.i];
+          p.sk.current = p.sk.required; p.sk.gap = 0;
+          saveDB(db); toast("Competency validated."); renderCompetencyValidation(mount);
+        };
+      });
+    }
+
+    /* ---------- Authorized Personnel ---------- */
+    function renderAuthorizedPersonnel(mount) {
+      const db = App.db;
+      mount.innerHTML = `<div class="page-head"><div><h1>Authorized Personnel</h1><p class="muted">Employees certified competent per skill</p></div></div><div id="authBody"></div>`;
+      const rows = [];
+      DEPARTMENTS.forEach(d => {
+        (SKILLS_BY_DEPT[d] || []).forEach(sk => {
+          const names = db.employees.filter(e => e.department === d && e.skills.some(s => s.skill === sk && s.gap <= 0)).map(e => e.name);
+          rows.push(`<tr><td>${d}</td><td>${sk}</td><td>${names.length}</td><td>${names.slice(0, 5).join(', ')}${names.length > 5 ? ' …' : ''}</td></tr>`);
+        });
+      });
+      document.getElementById("authBody").innerHTML = table(["Department", "Skill", "Authorized Count", "Authorized Personnel"], rows);
+    }
     /* ---------- Chart helper ---------- */
     function chart(canvasId, type, data, opts, customPlugins) {
       const ctx = document.getElementById(canvasId);
