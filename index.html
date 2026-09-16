@@ -4636,7 +4636,7 @@
     }
     function highlightNav() {
       document.querySelectorAll(".navlink").forEach(a => {
-        a.classList.toggle("active", location.hash.startsWith(a.dataset.hash));
+        a.classList.toggle("active", location.hash === a.dataset.hash || location.hash.startsWith(a.dataset.hash + "/"));
       });
       document.querySelectorAll(".nav-group").forEach(g => {
         const hasActive = [...g.querySelectorAll(".navlink-sub")].some(a => a.classList.contains("active"));
@@ -5416,10 +5416,14 @@
       mount.innerHTML = `
     <div class="page-head">
       <div><h1>Job Role &amp; Skill Requirements</h1><p class="muted">Required skill level per job role — editing "Required Level" auto-updates the Skill Matrix &amp; Training Gap for all matching employees</p></div>
-      <select id="jrDeptSelect" class="select">${deptOptions(dept)}</select>
+      <div style="display:flex; gap:10px; align-items:center;">
+        <select id="jrDeptSelect" class="select">${deptOptions(dept)}</select>
+        <button class="btn-primary" id="addJobRoleBtn">+ Add Job Role</button>
+      </div>
     </div>
     <div id="jobRoleTable"></div>`;
       document.getElementById("jrDeptSelect").onchange = (e) => { App.state.jobRoleDeptFilter = e.target.value; renderJobRoles(mount); };
+      document.getElementById("addJobRoleBtn").onclick = () => openAddJobRole(mount);
       const rows = dept === "All" ? db.jobRoles : db.jobRoles.filter(r => r.department === dept);
       document.getElementById("jobRoleTable").innerHTML = table(
         ["Job Role", "Department", "Required Skill", "Required Level", "Qualification", "Action"],
@@ -5431,6 +5435,44 @@
       );
       document.querySelectorAll(".edit-jr-btn").forEach(b => b.onclick = () => openEditJobRole(b.dataset.id, mount));
     }
+    function jrDeptOnlyOptions(selected) {
+      return DEPARTMENTS.map(d => `<option value="${d}" ${selected === d ? 'selected' : ''}>${d}</option>`).join('');
+    }
+    function openAddJobRole(mount) {
+      const db = App.db;
+      db.jobRoles = db.jobRoles || [];
+      openModal("Add Job Role & Skill Requirement", `
+    <div class="form-grid">
+      <label>Job Role / Designation<input id="jrNewRole" placeholder="e.g. Line Supervisor"/></label>
+      <label>Department<select id="jrNewDept">${jrDeptOnlyOptions(DEPARTMENTS[0])}</select></label>
+      <label>Required Skill<input id="jrNewSkill" placeholder="e.g. Machine Calibration"/></label>
+      <label>Required Level<select id="jrNewLevel">${[1, 2, 3, 4, 5].map(v => `<option value="${v}" ${v === 2 ? 'selected' : ''}>Level ${v}</option>`).join('')}</select></label>
+      <label>Qualification<select id="jrNewQual">${["SSC", "HSC", "Diploma", "Bachelor's", "Master's"].map(q => `<option ${q === 'SSC' ? 'selected' : ''}>${q}</option>`).join('')}</select></label>
+    </div>
+    <p class="muted">This adds a new required-skill entry for the job role. It does not automatically change any existing employee's current skill records.</p>
+    <button class="btn-primary" id="jrAddSaveBtn">Add Requirement</button>
+  `, {
+        onOpen: (box) => {
+          box.querySelector("#jrAddSaveBtn").onclick = () => {
+            const jobRole = box.querySelector("#jrNewRole").value.trim();
+            const department = box.querySelector("#jrNewDept").value;
+            const skill = box.querySelector("#jrNewSkill").value.trim();
+            const requiredLevel = parseInt(box.querySelector("#jrNewLevel").value);
+            const qualification = box.querySelector("#jrNewQual").value;
+            if (!jobRole) { toast("Please enter a job role / designation."); return; }
+            if (!skill) { toast("Please enter a required skill."); return; }
+            const dup = db.jobRoles.some(r => r.department === department && r.skill.toLowerCase() === skill.toLowerCase());
+            if (dup) { toast("This department already has a requirement for that skill."); return; }
+            const maxNum = db.jobRoles.reduce((m, r) => Math.max(m, parseInt((r.id || "").replace("JR", "")) || 0), 0);
+            db.jobRoles.push({ id: "JR" + pad(maxNum + 1, 3), jobRole, department, skill, requiredLevel, qualification });
+            saveDB(db);
+            closeModal();
+            toast("Job role requirement added.");
+            renderJobRoles(mount);
+          };
+        }
+      });
+    }
     function openEditJobRole(id, mount) {
       const db = App.db;
       const row = db.jobRoles.find(r => r.id === id);
@@ -5438,22 +5480,25 @@
       openModal("Edit Job Role Requirement", `
     <div class="form-grid">
       <label>Job Role<input id="jrJobRole" value="${row.jobRole}"/></label>
-      <label>Department<span style="padding:10px 0; display:block; font-weight:600;">${row.department}</span></label>
-      <label>Required Skill<span style="padding:10px 0; display:block; font-weight:600;">${row.skill}</span></label>
+      <label>Department<select id="jrDept">${jrDeptOnlyOptions(row.department)}</select></label>
+      <label>Required Skill<input id="jrSkill" value="${row.skill}"/></label>
       <label>Required Level<select id="jrLevel">${[1, 2, 3, 4, 5].map(v => `<option value="${v}" ${row.requiredLevel === v ? 'selected' : ''}>Level ${v}</option>`).join('')}</select></label>
       <label>Qualification<select id="jrQual">${["SSC", "HSC", "Diploma", "Bachelor's", "Master's"].map(q => `<option ${row.qualification === q ? 'selected' : ''}>${q}</option>`).join('')}</select></label>
     </div>
-    <p class="muted">Changing the Required Level will update this skill's requirement for every ${row.department} employee, recalculating their gap and status automatically.</p>
+    <p class="muted">Changing the Required Level will update this skill's requirement for every ${row.department} employee, recalculating their gap and status automatically. Changing Department or Required Skill only relabels this catalog entry — it will not rename or move any employee's existing skill records.</p>
     <button class="btn-primary" id="jrSaveBtn">Save Changes</button>
   `, {
         onOpen: (box) => {
           box.querySelector("#jrSaveBtn").onclick = () => {
+            const oldDept = row.department, oldSkill = row.skill;
             row.jobRole = box.querySelector("#jrJobRole").value.trim() || row.jobRole;
+            row.department = box.querySelector("#jrDept").value;
+            row.skill = box.querySelector("#jrSkill").value.trim() || row.skill;
             row.qualification = box.querySelector("#jrQual").value;
             const newLevel = parseInt(box.querySelector("#jrLevel").value);
             const levelChanged = newLevel !== row.requiredLevel;
             row.requiredLevel = newLevel;
-            if (levelChanged) applyRequiredLevelToEmployees(row.department, row.skill, newLevel);
+            if (levelChanged) applyRequiredLevelToEmployees(oldDept, oldSkill, newLevel);
             saveDB(db);
             closeModal();
             toast(levelChanged ? "Requirement updated — skill matrix recalculated." : "Requirement updated.");
