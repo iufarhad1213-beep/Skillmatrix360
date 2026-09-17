@@ -3839,6 +3839,7 @@
         nav_attendance: "Attendance", nav_analytics: "Analytics", nav_certificates: "Certificates",
         nav_notifications: "Notifications", nav_profile: "Profile", nav_settings: "Settings",
         nav_admin: "Employee Management", nav_trainerdash: "Trainer Dashboard", nav_trainees: "Trainee List",
+        nav_myevaluation: "Trainer Evaluation",
         search_placeholder: "Search employees, courses, skills…",
         logout: "Logout", welcome_back: "Welcome back",
         total_manpower: "Total Manpower", training_completed: "Training Completed", training_gap: "Training Gap",
@@ -3857,6 +3858,7 @@
         nav_attendance: "উপস্থিতি", nav_analytics: "বিশ্লেষণ", nav_certificates: "সার্টিফিকেট",
         nav_notifications: "নোটিফিকেশন", nav_profile: "প্রোফাইল", nav_settings: "সেটিংস",
         nav_admin: "কর্মী ব্যবস্থাপনা", nav_trainerdash: "প্রশিক্ষক ড্যাশবোর্ড", nav_trainees: "প্রশিক্ষণার্থী তালিকা",
+        nav_myevaluation: "প্রশিক্ষক মূল্যায়ন",
         search_placeholder: "কর্মী, কোর্স, স্কিল খুঁজুন…",
         logout: "লগআউট", welcome_back: "ফিরে আসার জন্য স্বাগতম",
         total_manpower: "মোট জনবল", training_completed: "প্রশিক্ষণ সম্পন্ন", training_gap: "প্রশিক্ষণ ঘাটতি",
@@ -4123,7 +4125,7 @@
     function pad(n, len) { return String(n).padStart(len, '0'); }
     function fmtDate(d) { return d.toISOString().slice(0, 10); }
     function addDays(d, n) { const nd = new Date(d); nd.setDate(nd.getDate() + n); return nd; }
-    function appToday() { return new Date(2026, 7, 23); }
+    function appToday() { return new Date(); }
     const TRAINING_VENUES = ["Training Room 01", "Training Room 02", "Conference Hall A", "Assembly Hall", "Workshop Bay 3"];
     const TRAINING_TIMES = ["9:00 AM", "10:00 AM", "11:00 AM", "2:00 PM", "3:00 PM"];
 
@@ -4245,7 +4247,8 @@
       generateAssessmentHistory(employees, schedule);
       const admin = { id: "ADMIN001", name: "Admin", department: "HR & Administration", designation: "HR Director", role: "admin", password: "Admin@123", photoInitials: "AD" };
       const trainer = { id: "TRAIN001", name: "Md. Salahuddin", department: "EHS", designation: "Senior Trainer", role: "trainer", password: "Trainer@123", photoInitials: "MS", assignedDept: ["Production", "EHS", "Quality"] };
-      return { employees, schedule, admin, trainer, courses: COURSES.map(c => ({ ...c, materials: [] })), venues: [...TRAINING_VENUES], trainers: [...TRAINER_POOL], generatedAt: new Date().toISOString() };
+      const trainerEvaluations = generateTrainerEvaluations(employees, schedule);
+      return { employees, schedule, admin, trainer, courses: COURSES.map(c => ({ ...c, materials: [] })), venues: [...TRAINING_VENUES], trainers: [...TRAINER_POOL], trainerEvaluations, trainingEvidence: [], generatedAt: new Date().toISOString() };
     }
 
     /* ---------- Persistence (Supabase cloud + localStorage cache) ---------- */
@@ -4304,6 +4307,14 @@
       if (!Array.isArray(db.venues)) { db.venues = [...TRAINING_VENUES]; migrated = true; }
       if (!Array.isArray(db.trainers)) { db.trainers = [...TRAINER_POOL]; migrated = true; }
 
+      /* ---- Recompute each training session's status against the real current date ---- */
+      (db.schedule || []).forEach(s => {
+        const d = new Date(s.date);
+        const newStatus = d < appToday() ? "Completed" : (d < addDays(appToday(), 14) ? "Upcoming" : "Planned");
+        if (s.status !== newStatus) { s.status = newStatus; migrated = true; }
+      });
+
+
       /* ---- Rename legacy admin display name to "Admin" ---- */
       if (db.admin && db.admin.name !== "Admin") {
         db.admin.name = "Admin";
@@ -4337,6 +4348,13 @@
           }
         });
       });
+
+      /* ---- Learning module: Trainer Evaluations & Training Evidence ---- */
+      db.trainingEvidence = db.trainingEvidence || [];
+      if (!Array.isArray(db.trainerEvaluations) || !db.trainerEvaluations.length) {
+        db.trainerEvaluations = generateTrainerEvaluations(db.employees || [], db.schedule || []);
+        migrated = true;
+      }
 
       assignLoginIds(db);
       return { db, migrated };
@@ -4658,7 +4676,8 @@
         ["#/overview", "🏠", "nav_overview"], ["#/skillmatrix", "🧩", "nav_skillmatrix"],
         ["#/elearning", "📚", "nav_elearning"], ["#/mytraining", "🎓", "nav_mytraining"],
         ["#/assessments", "📝", "nav_assessments"], ["#/schedule", "📅", "nav_schedule"],
-        ["#/attendance", "✅", "nav_attendance"], ["#/certificates", "🏆", "nav_certificates"],
+        ["#/attendance", "✅", "nav_attendance"], ["#/myevaluation", "⭐", "nav_myevaluation"],
+        ["#/certificates", "🏆", "nav_certificates"],
         ["#/notifications", "🔔", "nav_notifications"], ["#/profile", "👤", "nav_profile"],
       ],
       trainer: [
@@ -4678,9 +4697,16 @@
             ["#/authorizedpersonnel", "🛡️", "Authorized Personnel"],
           ]
         },
-        ["#/traininggap", "⚠", "nav_traininggap"],
+        {
+          group: true, key: "learning", icon: "🎓", label: "Learning", items: [
+            ["#/traininggap", "🎯", "Training Gap"],
+            ["#/elearning", "📚", "E-Learning"],
+            ["#/trainingrecords", "📋", "Training Records"],
+            ["#/trainingdocuments", "📁", "Training Documents"],
+          ]
+        },
         ["#/schedule", "📅", "nav_schedule"], ["#/annualplan", "📆", "nav_annualplan"],
-        ["#/elearning", "📚", "nav_elearning"], ["#/assessments", "📝", "nav_assessments"],
+        ["#/assessments", "📝", "nav_assessments"],
         ["#/attendance", "✅", "nav_attendance"], ["#/analytics", "📊", "nav_analytics"],
         ["#/certificates", "🏆", "nav_certificates"], ["#/admin", "⚙", "nav_admin"],
         ["#/notifications", "🔔", "nav_notifications"], ["#/profile", "👤", "nav_profile"],
@@ -4821,9 +4847,11 @@
         jobroles: renderJobRoles, competency: renderCompetency,
         competencyvalidation: renderCompetencyValidation, authorizedpersonnel: renderAuthorizedPersonnel,
         traininggap: renderTrainingGap, elearning: renderElearning, course: () => renderCourseDetail(param),
+        trainingrecords: renderTrainingRecords, trainingdocuments: renderTrainingDocuments,
         mytraining: renderMyTraining, assessments: renderAssessments,
         assessmentrun: () => renderAssessmentRun(param), result: () => renderResult(param),
         schedule: renderSchedule, annualplan: renderAnnualPlan, attendance: renderAttendance,
+        myevaluation: renderMyEvaluation,
         analytics: renderAnalytics, certificates: renderCertificates, notifications: renderNotifications,
         profile: renderProfile, admin: renderAdmin, trainees: renderTrainees, employee: () => renderEmployeeProfileModal(param)
       };
@@ -6541,7 +6569,7 @@
       const db = App.db, user = currentUser();
       const course = db.courses.find(c => c.id === courseId);
       if (!course) { mount.innerHTML = "<p>Course not found.</p>"; return; }
-      const isEmpLike = App.session.role !== 'admin';
+      const isEmpLike = App.session.role === 'employee';
       const canManageMaterials = App.session.role === 'admin' || App.session.role === 'trainer';
       const prog = isEmpLike ? progressOf(user, course.id) : { progress: 0, completed: false };
       const attempts = isEmpLike ? (user.attempts[course.id] || []) : [];
@@ -6969,6 +6997,73 @@
       document.querySelectorAll(".go-course").forEach(b => b.onclick = () => navigate("#/course/" + b.dataset.c));
     }
 
+    /* ---------- My Trainer Evaluation (employee submits rating for completed trainings) ---------- */
+    const EVAL_CRITERIA = [
+      ["knowledge", "Subject Knowledge"], ["communication", "Communication"], ["practical", "Practical Demonstration"],
+      ["material", "Training Material"], ["engagement", "Engagement"], ["questionHandling", "Question Handling"],
+      ["relevance", "Relevance to Job"]
+    ];
+    function renderMyEvaluation(mount) {
+      const db = App.db, user = currentUser();
+      db.trainerEvaluations = db.trainerEvaluations || [];
+      const completed = (user.trainingRecords || []).filter(r => r.status === "Completed");
+      mount.innerHTML = `
+    <div class="page-head"><div><h1>⭐ Trainer Evaluation</h1><p class="muted">Rate the trainer for your completed trainings</p></div></div>
+    <div id="myEvalTable"></div>`;
+      document.getElementById("myEvalTable").innerHTML = completed.length ? table(
+        ["Training", "Trainer", "Date", "Status", "Action"],
+        completed.map(r => {
+          const session = trainingById(r.trainingId);
+          const trainerName = session ? session.trainer : "-";
+          const existing = db.trainerEvaluations.find(e => e.empId === user.id && e.trainingId === r.trainingId);
+          return `<tr>
+        <td>${r.title}</td><td>${trainerName}</td><td>${r.date}</td>
+        <td>${existing ? statusPill("Completed") : statusPill("Pending")}</td>
+        <td><button class="btn-small my-eval-btn" data-tid="${r.trainingId}" data-trainer="${trainerName}">${existing ? "View My Rating" : "Rate Trainer"}</button></td>
+      </tr>`;
+        })
+      ) : `<p class="muted">No completed training yet. Trainer Evaluation becomes available once you finish a training (post-assessment passed).</p>`;
+      document.querySelectorAll(".my-eval-btn").forEach(b => b.onclick = () => openTrainerEvalForm(b.dataset.tid, b.dataset.trainer));
+    }
+    function openTrainerEvalForm(trainingId, trainerName) {
+      const db = App.db, user = currentUser();
+      const session = trainingById(trainingId);
+      const existing = db.trainerEvaluations.find(e => e.empId === user.id && e.trainingId === trainingId);
+      const readOnly = !!existing;
+      const ratingSelect = (key, label) => {
+        const val = existing ? existing.ratings[key] : 0;
+        return `<label>${label}<select id="ev_${key}" class="select" ${readOnly ? 'disabled' : ''}>
+        ${[1, 2, 3, 4, 5].map(n => `<option value="${n}" ${val === n ? 'selected' : ''}>${"★".repeat(n)}${"☆".repeat(5 - n)}</option>`).join('')}
+      </select></label>`;
+      };
+      openModal(`Trainer Evaluation — ${trainerName}`, `
+    <p class="muted" style="margin-bottom:10px;">Training: <b>${session ? session.title : trainingId}</b> · Trainer: <b>${trainerName}</b></p>
+    <div class="form-grid">
+      ${EVAL_CRITERIA.map(([key, label]) => ratingSelect(key, label)).join('')}
+    </div>
+    <label style="display:block; margin-top:10px;">Comments<textarea id="evComment" rows="3" class="select" style="width:100%;" ${readOnly ? 'disabled' : ''}>${existing ? existing.comments : ''}</textarea></label>
+    ${readOnly ? '<p class="muted" style="margin-top:10px;">You have already submitted your evaluation for this training.</p>' : '<button class="btn-primary" id="evSubmitBtn" style="margin-top:14px;">Submit Evaluation</button>'}
+  `, {
+        onOpen: (box) => {
+          if (readOnly) return;
+          box.querySelector("#evSubmitBtn").onclick = () => {
+            const ratings = {};
+            EVAL_CRITERIA.forEach(([key]) => { ratings[key] = parseInt(box.querySelector("#ev_" + key).value, 10); });
+            const comments = box.querySelector("#evComment").value.trim();
+            const maxNum = db.trainerEvaluations.reduce((m, e) => Math.max(m, parseInt((e.id || "").replace("EV", "")) || 0), 0);
+            db.trainerEvaluations.push({
+              id: "EV" + pad(maxNum + 1, 4), trainingId, trainer: trainerName, empId: user.id,
+              department: user.department, date: fmtDate(appToday()), ratings, comments
+            });
+            saveDB(db);
+            closeModal();
+            toast("Thank you — your trainer evaluation has been submitted.");
+            renderMyEvaluation(document.getElementById("pageMount"));
+          };
+        }
+      });
+    }
+
     /* ---------- Assessments Hub ---------- */
     function renderAssessments(mount) {
       const db = App.db, role = App.session.role;
@@ -7107,6 +7202,19 @@
       user.attempts[course.id] = user.attempts[course.id] || [];
       const attemptRecord = { date: new Date().toISOString().slice(0, 10), type, score, passed, detail, writtenAnswers };
       user.attempts[course.id].push(attemptRecord);
+
+      // Auto-attendance: taking an exam (pre or post) for a topic marks that topic's attendance as Present.
+      const trForAttendance = user.trainingRecords.find(r => r.courseId === course.id);
+      if (trForAttendance) {
+        user.attendance = user.attendance || [];
+        let attRec = user.attendance.find(a => a.trainingId === trForAttendance.trainingId);
+        if (!attRec) {
+          attRec = { trainingId: trForAttendance.trainingId, title: trForAttendance.title, date: trForAttendance.date, status: "Present" };
+          user.attendance.push(attRec);
+        } else if (attRec.status !== "Present" && attRec.status !== "Late") {
+          attRec.status = "Present";
+        }
+      }
 
       user.notifications = user.notifications || [];
       if (type === 'post' && passed) {
@@ -7530,6 +7638,721 @@
     /* ---------- Notifications ---------- */
     function notifIcon(type) {
       return { training_assigned: "📌", training_reminder: "⏰", training_passed: "🎉", training_failed: "🔁" }[type] || "🔔";
+    }
+    /* ============================================================
+       LEARNING MODULE — Training Records & Training Documents
+       All data keyed by Training ID (db.schedule[].id) and
+       Employee ID, reusing existing schedule/attendance/attempts data.
+       ============================================================ */
+
+    function generateTrainerEvaluations(employees, schedule) {
+      const evals = [];
+      let eid = 1;
+      schedule.filter(tr => tr.status === "Completed").forEach(tr => {
+        tr.participants.forEach(empId => {
+          const emp = employees.find(e => e.id === empId);
+          if (!emp) return;
+          const att = (emp.attendance || []).find(a => a.trainingId === tr.id);
+          if (!att || att.status === "Absent") return;
+          if (rand() < 0.15) return;
+          const base = randInt(3, 5);
+          const j = () => Math.min(5, Math.max(1, base + randInt(-1, 1)));
+          evals.push({
+            id: "EV" + pad(eid++, 4), trainingId: tr.id, trainer: tr.trainer, empId: emp.id,
+            department: tr.department, date: tr.date,
+            ratings: { knowledge: j(), communication: j(), practical: j(), material: j(), engagement: j(), questionHandling: j(), relevance: j() },
+            comments: pick(["Very helpful session.", "Clear explanation with real examples.", "Could include more hands-on practice.", "Well organized and on time.", "Good pace, easy to follow.", "Trainer answered all questions well."])
+          });
+        });
+      });
+      return evals;
+    }
+    function evalOverall(r) {
+      const vals = [r.knowledge, r.communication, r.practical, r.material, r.engagement, r.questionHandling, r.relevance];
+      return vals.reduce((a, b) => a + b, 0) / vals.length;
+    }
+    function starRating(v) {
+      const full = Math.round(v);
+      return "★".repeat(full) + "☆".repeat(5 - full);
+    }
+
+    /* ---------- Shared Training helpers ---------- */
+    function allTrainings() { return (App.db.schedule || []).slice().sort((a, b) => new Date(b.date) - new Date(a.date)); }
+    function trainingById(id) { return (App.db.schedule || []).find(t => t.id === id); }
+    function empById(id) { return App.db.employees.find(e => e.id === id); }
+    function courseById(id) { return App.db.courses.find(c => c.id === id); }
+    function bestAttempt(emp, courseId, type) {
+      const list = (emp.attempts && emp.attempts[courseId]) || [];
+      const filtered = list.filter(a => a.type === type);
+      return filtered.length ? filtered[filtered.length - 1] : null;
+    }
+    function empEvidence(trainingId) { return (App.db.trainingEvidence || []).filter(x => x.trainingId === trainingId); }
+    function trainingParticipantRows(tr) {
+      return tr.participants.map(empId => {
+        const emp = empById(empId);
+        if (!emp) return null;
+        const att = (emp.attendance || []).find(a => a.trainingId === tr.id);
+        const pre = bestAttempt(emp, tr.courseId, "pre");
+        const post = bestAttempt(emp, tr.courseId, "post");
+        return { emp, att, pre, post };
+      }).filter(Boolean);
+    }
+
+    /* ---------- Training Records (tabbed hub) ---------- */
+    function renderTrainingRecords(mount) {
+      App.state.trTab = App.state.trTab || "calendar";
+      const tabs = [
+        ["calendar", "📅", "Training Calendar"], ["attendance", "👥", "Training Attendance"],
+        ["history", "📚", "Training History"], ["assessment", "📝", "Assessment Result"],
+        ["evaluation", "⭐", "Trainer Evaluation"]
+      ];
+      mount.innerHTML = `
+    <div class="page-head"><div><h1>📋 Training Records</h1><p class="muted">Training Calendar, Attendance, History, Assessment Result &amp; Trainer Evaluation — connected by Training ID</p></div></div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:18px;">
+      ${tabs.map(([k, icon, label]) => `<button class="btn-small tr-tab ${App.state.trTab === k ? 'active' : ''}" data-tab="${k}">${icon} ${label}</button>`).join('')}
+    </div>
+    <div id="trSubMount"></div>`;
+      document.querySelectorAll(".tr-tab").forEach(b => b.onclick = () => { App.state.trTab = b.dataset.tab; renderTrainingRecords(mount); });
+      const sub = document.getElementById("trSubMount");
+      const fns = { calendar: renderTRCalendar, attendance: renderTRAttendance, history: renderTRHistory, assessment: renderTRAssessment, evaluation: renderTREvaluation };
+      (fns[App.state.trTab] || renderTRCalendar)(sub);
+    }
+
+    /* ---- 3.1 Training Calendar ---- */
+    function renderTRCalendar(el) {
+      App.state.trCalView = App.state.trCalView || "list";
+      App.state.trCalMonth = App.state.trCalMonth || "2026-08";
+      const db = App.db;
+      const all = allTrainings();
+      const counts = { Completed: 0, Upcoming: 0, Planned: 0 };
+      all.forEach(t => counts[t.status] = (counts[t.status] || 0) + 1);
+      el.innerHTML = `
+    <div class="kpi-grid" style="margin-bottom:16px;">
+      ${kpiCard("📋", "Total Trainings", all.length)}
+      ${kpiCard("✅", "Completed", counts.Completed || 0)}
+      ${kpiCard("🕓", "Upcoming", counts.Upcoming || 0)}
+      ${kpiCard("🗓", "Planned", counts.Planned || 0)}
+    </div>
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
+      <div style="display:flex; gap:6px;">
+        <button class="btn-small tcv-btn ${App.state.trCalView === 'month' ? 'active' : ''}" data-v="month">Month View</button>
+        <button class="btn-small tcv-btn ${App.state.trCalView === 'week' ? 'active' : ''}" data-v="week">Week View</button>
+        <button class="btn-small tcv-btn ${App.state.trCalView === 'list' ? 'active' : ''}" data-v="list">List View</button>
+      </div>
+      <div id="tcExtraFilters"></div>
+    </div>
+    <div id="tcBody"></div>`;
+      document.querySelectorAll(".tcv-btn").forEach(b => b.onclick = () => { App.state.trCalView = b.dataset.v; renderTRCalendar(el); });
+      const body = document.getElementById("tcBody");
+      if (App.state.trCalView === "list") renderTCList(body, all);
+      else if (App.state.trCalView === "month") renderTCMonth(body, all);
+      else renderTCWeek(body, all);
+    }
+    function openTrainingDetails(tr) {
+      const rows = trainingParticipantRows(tr);
+      const present = rows.filter(r => r.att && r.att.status === "Present").length;
+      const evals = (App.db.trainerEvaluations || []).filter(e => e.trainingId === tr.id);
+      const avgRating = evals.length ? (evals.reduce((s, e) => s + evalOverall(e.ratings), 0) / evals.length) : null;
+      const course = courseById(tr.courseId);
+      openModal(`Training Details — ${tr.id}`, `
+    <div class="form-grid" style="margin-bottom:10px;">
+      <div><b>Training ID</b><div>${tr.id}</div></div>
+      <div><b>Training Name</b><div>${tr.title}</div></div>
+      <div><b>Department</b><div>${tr.department}</div></div>
+      <div><b>Trainer</b><div>${tr.trainer}</div></div>
+      <div><b>Date</b><div>${tr.date}</div></div>
+      <div><b>Time</b><div>${tr.time}</div></div>
+      <div><b>Venue</b><div>${tr.venue}</div></div>
+      <div><b>Participants</b><div>${tr.participants.length}</div></div>
+      <div><b>Assessment</b><div>MCQ + Written</div></div>
+      <div><b>Pass Mark</b><div>70%</div></div>
+      <div><b>Status</b><div>${statusPill(tr.status)}</div></div>
+      <div><b>Present</b><div>${present}/${rows.length}</div></div>
+      ${avgRating ? `<div><b>Trainer Rating</b><div>${starRating(avgRating)} (${avgRating.toFixed(1)}/5)</div></div>` : ''}
+    </div>
+    ${course ? `<p class="muted">Course: ${course.title} · ${course.topic} · ${course.duration}</p>` : ''}
+    <button class="btn-primary" id="tdOpenDocsBtn">Open in Training Documents →</button>
+  `, {
+        onOpen: (box) => {
+          box.querySelector("#tdOpenDocsBtn").onclick = () => { App.state.tdTrainingId = tr.id; closeModal(); navigate("#/trainingdocuments"); };
+        }
+      });
+    }
+    function renderTCList(body, all) {
+      body.innerHTML = `
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
+      <input id="tcSearch" placeholder="Search training / trainer…" style="flex:1; min-width:180px;"/>
+      <select id="tcDept" class="select">${deptOptionsWithAll("All")}</select>
+      <select id="tcStatus" class="select"><option value="All">All Status</option>${["Completed", "Upcoming", "Planned"].map(s => `<option>${s}</option>`).join('')}</select>
+    </div>
+    <div id="tcTable"></div>`;
+      const draw = () => {
+        const q = document.getElementById("tcSearch").value.trim().toLowerCase();
+        const dept = document.getElementById("tcDept").value;
+        const status = document.getElementById("tcStatus").value;
+        let rows = all.filter(t => (dept === "All" || t.department === dept) && (status === "All" || t.status === status) &&
+          (!q || t.title.toLowerCase().includes(q) || t.trainer.toLowerCase().includes(q) || t.id.toLowerCase().includes(q)));
+        document.getElementById("tcTable").innerHTML = table(
+          ["Training ID", "Training Name", "Department", "Trainer", "Date", "Venue", "Participants", "Status"],
+          rows.map(t => `<tr class="tc-row" data-id="${t.id}" style="cursor:pointer;">
+        <td>${t.id}</td><td>${t.title}</td><td>${t.department}</td><td>${t.trainer}</td>
+        <td>${t.date}</td><td>${t.venue}</td><td>${t.participants.length}</td><td>${statusPill(t.status)}</td>
+      </tr>`)
+        );
+        document.querySelectorAll(".tc-row").forEach(r => r.onclick = () => openTrainingDetails(trainingById(r.dataset.id)));
+      };
+      document.getElementById("tcSearch").oninput = draw;
+      document.getElementById("tcDept").onchange = draw;
+      document.getElementById("tcStatus").onchange = draw;
+      draw();
+    }
+    function renderTCMonth(body, all) {
+      const [y, m] = App.state.trCalMonth.split("-").map(Number);
+      const first = new Date(y, m - 1, 1);
+      const daysInMonth = new Date(y, m, 0).getDate();
+      const startDow = first.getDay();
+      const byDay = {};
+      all.forEach(t => {
+        const d = new Date(t.date);
+        if (d.getFullYear() === y && d.getMonth() === m - 1) {
+          const key = d.getDate();
+          (byDay[key] = byDay[key] || []).push(t);
+        }
+      });
+      let cells = '';
+      for (let i = 0; i < startDow; i++) cells += `<div class="cal-cell empty"></div>`;
+      for (let d = 1; d <= daysInMonth; d++) {
+        const evts = byDay[d] || [];
+        cells += `<div class="cal-cell">
+      <div class="cal-daynum">${d}</div>
+      ${evts.slice(0, 2).map(t => `<div class="cal-evt cal-evt-${t.status.toLowerCase()} tc-row" data-id="${t.id}" title="${t.title} — ${t.venue} — ${t.trainer} (${t.status})">
+  <div class="cal-evt-title">${t.title}</div>
+  <div class="cal-evt-meta">📍 ${t.venue}</div>
+  <div class="cal-evt-meta">🧑‍🏫 ${t.trainer.replace('Trainer: ', '')}</div>
+</div>`).join('')}
+      ${evts.length > 3 ? `<div class="muted" style="font-size:11px;">+${evts.length - 3} more</div>` : ''}
+    </div>`;
+      }
+      body.innerHTML = `
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+      <button class="btn-small" id="tcPrevM">‹</button>
+      <b>${first.toLocaleString('en-US', { month: 'long', year: 'numeric' })}</b>
+      <button class="btn-small" id="tcNextM">›</button>
+    </div>
+    <div class="cal-grid-head">${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(d => `<div>${d}</div>`).join('')}</div>
+    <div class="cal-grid">${cells}</div>
+    <style>
+      .cal-grid-head{display:grid; grid-template-columns:repeat(7,1fr); gap:6px; font-size:12px; font-weight:700; color:var(--muted,#64748B); margin-bottom:4px;}
+      .cal-grid{display:grid; grid-template-columns:repeat(7,1fr); gap:6px;}
+      .cal-cell{min-height:80px; border:1px solid var(--border,#E2E8F0); border-radius:8px; padding:6px; font-size:12px;}
+      .cal-cell.empty{border:none;}
+      .cal-daynum{font-weight:700; margin-bottom:4px;}
+      .cal-evt-completed{background:var(--green-bg); color:var(--green);}
+.cal-evt-upcoming{background:var(--purple-bg); color:var(--purple);}
+.cal-evt-planned{background:var(--blue-bg); color:var(--blue);}; border-radius:5px; padding:2px 5px; margin-bottom:3px; cursor:pointer; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+    </style>`;
+      document.getElementById("tcPrevM").onclick = () => { const nm = new Date(y, m - 2, 1); App.state.trCalMonth = `${nm.getFullYear()}-${pad(nm.getMonth() + 1, 2)}`; renderTRCalendar(document.getElementById("trSubMount")); };
+      document.getElementById("tcNextM").onclick = () => { const nm = new Date(y, m, 1); App.state.trCalMonth = `${nm.getFullYear()}-${pad(nm.getMonth() + 1, 2)}`; renderTRCalendar(document.getElementById("trSubMount")); };
+      document.querySelectorAll(".tc-row").forEach(r => r.onclick = () => openTrainingDetails(trainingById(r.dataset.id)));
+    }
+    function renderTCWeek(body, all) {
+      const base = all.length ? new Date(all[0].date) : new Date(2026, 7, 23);
+      const dow = base.getDay();
+      const monday = addDays(base, -((dow + 6) % 7));
+      const days = [...Array(7)].map((_, i) => addDays(monday, i));
+      body.innerHTML = `<div style="display:flex; flex-direction:column; gap:10px;">
+    ${days.map(d => {
+        const key = fmtDate(d);
+        const evts = all.filter(t => t.date === key);
+        return `<div style="border:1px solid var(--border,#E2E8F0); border-radius:10px; padding:10px 14px;">
+        <b>${d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</b>
+        ${evts.length ? evts.map(t => `<div class="tc-row" data-id="${t.id}" style="cursor:pointer; margin-top:6px; padding:6px 8px; border-radius:6px; background:var(--card-bg,#F8FAFC);">
+            <b>${t.id}</b> — ${t.title} · ${t.department} · ${t.trainer} ${statusPill(t.status)}
+          </div>`).join('') : '<div class="muted" style="margin-top:6px;">No training scheduled</div>'}
+      </div>`;
+      }).join('')}
+    </div>`;
+      document.querySelectorAll(".tc-row").forEach(r => r.onclick = () => openTrainingDetails(trainingById(r.dataset.id)));
+    }
+
+    /* ---- 3.2 Training Attendance ---- */
+    function renderTRAttendance(el) {
+      const db = App.db;
+      const trainings = allTrainings();
+      App.state.trAttTraining = App.state.trAttTraining || (trainings[0] ? trainings[0].id : "All");
+      el.innerHTML = `
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px;">
+      <select id="taTraining" class="select" style="min-width:220px;">
+        <option value="All">All Trainings</option>
+        ${trainings.map(t => `<option value="${t.id}" ${App.state.trAttTraining === t.id ? 'selected' : ''}>${t.id} — ${t.title} (${t.date})</option>`).join('')}
+      </select>
+      <select id="taDept" class="select">${deptOptionsWithAll("All")}</select>
+      <select id="taStatus" class="select"><option value="All">All Attendance</option>${["Present", "Late", "Absent", "Excused"].map(s => `<option>${s}</option>`).join('')}</select>
+      <input id="taSearch" placeholder="Search employee…" style="flex:1; min-width:160px;"/>
+      <button class="btn-primary" id="taMarkAllBtn">Mark All Present</button>
+    </div>
+    <div class="kpi-grid" id="taSummary" style="margin-bottom:14px;"></div>
+    <div id="taTable"></div>`;
+      const getRows = () => {
+        const trFilter = document.getElementById("taTraining").value;
+        const dept = document.getElementById("taDept").value;
+        const status = document.getElementById("taStatus").value;
+        const q = document.getElementById("taSearch").value.trim().toLowerCase();
+        const out = [];
+        db.employees.forEach(emp => {
+          (emp.attendance || []).forEach(a => {
+            if (trFilter !== "All" && a.trainingId !== trFilter) return;
+            if (dept !== "All" && emp.department !== dept) return;
+            if (status !== "All" && a.status !== status) return;
+            if (q && !(emp.name.toLowerCase().includes(q) || emp.id.toLowerCase().includes(q))) return;
+            out.push({ emp, a });
+          });
+        });
+        return out;
+      };
+      const draw = () => {
+        const rows = getRows();
+        const c = { Present: 0, Late: 0, Absent: 0, Excused: 0 };
+        rows.forEach(r => c[r.a.status] = (c[r.a.status] || 0) + 1);
+        const pct = rows.length ? Math.round(((c.Present + c.Late) / rows.length) * 100) : 0;
+        document.getElementById("taSummary").innerHTML = [
+          kpiCard("✅", "Present", c.Present), kpiCard("🟠", "Late", c.Late),
+          kpiCard("🔴", "Absent", c.Absent), kpiCard("🟣", "Excused", c.Excused), kpiCard("📊", "Attendance %", pct + "%")
+        ].join('');
+        document.getElementById("taTable").innerHTML = table(
+          ["Training ID", "Employee ID", "Employee Name", "Department", "Attendance Status", "Action"],
+          rows.map((r, i) => `<tr>
+        <td>${r.a.trainingId}</td><td>${r.emp.id}</td><td>${r.emp.name}</td><td>${r.emp.department}</td>
+        <td>${statusPill(r.a.status)}</td>
+        <td><select class="select ta-edit" data-eid="${r.emp.id}" data-tid="${r.a.trainingId}">
+          ${["Present", "Late", "Absent", "Excused"].map(s => `<option ${r.a.status === s ? 'selected' : ''}>${s}</option>`).join('')}
+        </select></td>
+      </tr>`)
+        );
+        document.querySelectorAll(".ta-edit").forEach(sel => {
+          sel.onchange = () => {
+            const emp = empById(sel.dataset.eid);
+            const rec = (emp.attendance || []).find(a => a.trainingId === sel.dataset.tid);
+            if (rec) { rec.status = sel.value; saveDB(db); toast("Attendance updated — Training History recalculated."); draw(); }
+          };
+        });
+      };
+      ["taTraining", "taDept", "taStatus"].forEach(id => document.getElementById(id).onchange = draw);
+      document.getElementById("taSearch").oninput = draw;
+      document.getElementById("taMarkAllBtn").onclick = () => {
+        if (!confirm("Mark all currently listed employees as Present?")) return;
+        getRows().forEach(r => r.a.status = "Present");
+        saveDB(db); toast("All marked Present."); draw();
+      };
+      draw();
+    }
+
+    /* ---- 3.3 Training History (Employee Training Passport) ---- */
+    function renderTRHistory(el) {
+      const db = App.db;
+      App.state.trHistoryEmp = App.state.trHistoryEmp || db.employees[0].id;
+      el.innerHTML = `
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px;">
+      <input id="thSearch" list="thEmpList" placeholder="Search employee by name or ID…" style="flex:1; min-width:220px;"/>
+      <datalist id="thEmpList">${db.employees.map(e => `<option value="${e.name} (${e.id})">`).join('')}</datalist>
+    </div>
+    <div id="thBody"></div>`;
+      const draw = (empId) => {
+        const emp = empById(empId);
+        const body = document.getElementById("thBody");
+        if (!emp) { body.innerHTML = `<p class="muted">Employee not found.</p>`; return; }
+        const recs = (emp.trainingRecords || []).slice().sort((a, b) => new Date(b.date) - new Date(a.date));
+        const completed = recs.filter(r => r.status === "Completed").length;
+        const pending = recs.filter(r => ["Pending", "Planned", "Upcoming", "Development Required"].includes(r.status)).length;
+        let scoreSum = 0, scoreN = 0;
+        recs.forEach(r => { const post = bestAttempt(emp, r.courseId, "post"); if (post) { scoreSum += post.score; scoreN++; } });
+        const avgScore = scoreN ? Math.round(scoreSum / scoreN) : 0;
+        const validated = emp.skills.filter(s => s.gap <= 0).length;
+        body.innerHTML = `
+      <div class="profile-panel" style="margin-bottom:16px;">
+        <div class="profile-photo-wrap"><div class="profile-photo">${emp.photoInitials}</div></div>
+        <div class="profile-info">
+          <h3>${emp.name}</h3>
+          <p class="muted">Employee ID: ${emp.id} · ${emp.department} · ${emp.designation}</p>
+        </div>
+      </div>
+      <div class="kpi-grid" style="margin-bottom:16px;">
+        ${kpiCard("📋", "Total Training", recs.length)}
+        ${kpiCard("✅", "Completed", completed)}
+        ${kpiCard("🕓", "Pending", pending)}
+        ${kpiCard("📊", "Average Score", avgScore + "%")}
+        ${kpiCard("🛡️", "Validated Skills", validated)}
+      </div>
+      <div id="thTable"></div>`;
+        document.getElementById("thTable").innerHTML = table(
+          ["Date", "Training", "Trainer", "Attendance", "Score", "Validation", "Effectiveness"],
+          recs.map(r => {
+            const tr = trainingById(r.trainingId);
+            const att = (emp.attendance || []).find(a => a.trainingId === r.trainingId);
+            const pre = bestAttempt(emp, r.courseId, "pre");
+            const post = bestAttempt(emp, r.courseId, "post");
+            const validation = post ? (post.passed ? "Validated" : "Not Validated") : "Pending";
+            const effectiveness = (pre && post) ? ((post.score - pre.score) >= 15 ? "Effective" : "Needs Reinforcement") : "—";
+            return `<tr>
+          <td>${r.date}</td><td>${r.title}</td><td>${tr ? tr.trainer : '—'}</td>
+          <td>${att ? statusPill(att.status) : '—'}</td><td>${post ? post.score + '%' : '—'}</td>
+          <td>${statusPill(validation === 'Validated' ? 'Present' : validation === 'Not Validated' ? 'Absent' : 'Pending')} ${validation}</td>
+          <td>${effectiveness}</td>
+        </tr>`;
+          })
+        );
+      };
+      document.getElementById("thSearch").addEventListener("change", (e) => {
+        const m = e.target.value.match(/\(([^)]+)\)\s*$/);
+        const emp = m ? empById(m[1]) : db.employees.find(x => x.name.toLowerCase() === e.target.value.toLowerCase());
+        if (emp) { App.state.trHistoryEmp = emp.id; draw(emp.id); }
+      });
+      draw(App.state.trHistoryEmp);
+    }
+
+    /* ---- 3.4 Assessment Result ---- */
+    function renderTRAssessment(el) {
+      const db = App.db;
+      const trainings = allTrainings().filter(t => t.status === "Completed");
+      App.state.trAssessTraining = App.state.trAssessTraining || (trainings[0] ? trainings[0].id : null);
+      el.innerHTML = `
+    <div style="margin-bottom:14px;">
+      <select id="arTraining" class="select" style="min-width:260px;">
+        ${trainings.map(t => `<option value="${t.id}" ${App.state.trAssessTraining === t.id ? 'selected' : ''}>${t.id} — ${t.title} (${t.date})</option>`).join('')}
+      </select>
+    </div>
+    <div class="kpi-grid" id="arSummary" style="margin-bottom:14px;"></div>
+    <div id="arTable"></div>`;
+      const draw = () => {
+        const tid = document.getElementById("arTraining").value;
+        App.state.trAssessTraining = tid;
+        const tr = trainingById(tid);
+        if (!tr) return;
+        const rows = trainingParticipantRows(tr).filter(r => r.post);
+        const passed = rows.filter(r => r.post.passed).length;
+        const failed = rows.length - passed;
+        const avg = rows.length ? Math.round(rows.reduce((s, r) => s + r.post.score, 0) / rows.length) : 0;
+        const passRate = rows.length ? Math.round((passed / rows.length) * 100) : 0;
+        document.getElementById("arSummary").innerHTML = [
+          kpiCard("👥", "Total Participants", rows.length), kpiCard("✅", "Passed", passed),
+          kpiCard("❌", "Failed", failed), kpiCard("📊", "Average Score", avg + "%"),
+          kpiCard("🎯", "Pass Rate", passRate + "%"), kpiCard("🔁", "Retake Required", failed)
+        ].join('');
+        document.getElementById("arTable").innerHTML = table(
+          ["Employee ID", "Employee", "Department", "Score", "Result", "Action"],
+          rows.map(r => `<tr>
+        <td>${r.emp.id}</td><td>${r.emp.name}</td><td>${r.emp.department}</td><td>${r.post.score}%</td>
+        <td>${r.post.passed ? '<span class="pill pill-green">✅ PASS</span>' : '<span class="pill pill-red">❌ FAIL</span>'}</td>
+        <td><button class="btn-small ar-view" data-eid="${r.emp.id}" data-tid="${tr.id}">${r.post.passed ? 'View' : 'Retake'}</button></td>
+      </tr>`)
+        );
+        document.querySelectorAll(".ar-view").forEach(b => b.onclick = () => openAssessmentResultModal(b.dataset.eid, b.dataset.tid));
+      };
+      document.getElementById("arTraining").onchange = draw;
+      draw();
+    }
+    function openAssessmentResultModal(empId, trainingId) {
+      const emp = empById(empId), tr = trainingById(trainingId), course = courseById(tr.courseId);
+      const pre = bestAttempt(emp, tr.courseId, "pre"), post = bestAttempt(emp, tr.courseId, "post");
+      let detailHtml = '';
+      if (post && post.detail) {
+        const mcq = post.detail.length, correct = post.detail.filter(d => d.correct).length, wrong = post.detail.filter(d => !d.correct && d.given !== null).length, unanswered = post.detail.filter(d => d.given === null).length;
+        detailHtml = `<p class="muted">MCQ Questions: ${mcq} · Correct: ${correct} · Wrong: ${wrong} · Unanswered: ${unanswered}</p>`;
+      }
+      openModal(`Assessment Result — ${emp.name}`, `
+    <div class="form-grid">
+      <div><b>Employee ID</b><div>${emp.id}</div></div>
+      <div><b>Employee Name</b><div>${emp.name}</div></div>
+      <div><b>Department</b><div>${emp.department}</div></div>
+      <div><b>Training ID</b><div>${tr.id}</div></div>
+      <div><b>Training Name</b><div>${tr.title}</div></div>
+      <div><b>Pre-Assessment Score</b><div>${pre ? pre.score + '%' : '—'}</div></div>
+      <div><b>Post-Assessment Score</b><div>${post ? post.score + '%' : '—'}</div></div>
+      <div><b>Pass Mark</b><div>70%</div></div>
+      <div><b>Result</b><div>${post ? (post.passed ? '✅ PASS' : '❌ FAIL') : 'Pending'}</div></div>
+      <div><b>Retake Status</b><div>${post && !post.passed ? 'Retake Required' : 'Not Required'}</div></div>
+    </div>
+    ${detailHtml}
+    ${!post || !post.passed ? `<div class="muted" style="margin-top:10px;">Failed Assessment → Related E-Learning → Re-learning → Retake Assessment → Pass → Training Record Updated</div>` : ''}
+  `);
+    }
+
+    /* ---- 3.5 Trainer Evaluation ---- */
+    function renderTREvaluation(el) {
+      const db = App.db;
+      db.trainerEvaluations = db.trainerEvaluations || [];
+      el.innerHTML = `
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px;">
+      <select id="teTrainer" class="select"><option value="All">All Trainers</option>${TRAINER_POOL.map(t => `<option>${t}</option>`).join('')}</select>
+      <select id="teDept" class="select">${deptOptionsWithAll("All")}</select>
+      <select id="teTraining" class="select"><option value="All">All Trainings</option>${allTrainings().map(t => `<option value="${t.id}">${t.id} — ${t.title}</option>`).join('')}</select>
+    </div>
+    <div class="kpi-grid" id="teSummary" style="margin-bottom:14px;"></div>
+    <div style="height:260px; margin-bottom:18px;"><canvas id="teTrendChart"></canvas></div>
+    <div id="teTable"></div>`;
+      const draw = () => {
+        const trainer = document.getElementById("teTrainer").value;
+        const dept = document.getElementById("teDept").value;
+        const tid = document.getElementById("teTraining").value;
+        const evals = db.trainerEvaluations.filter(e => (trainer === "All" || e.trainer === trainer) && (dept === "All" || e.department === dept) && (tid === "All" || e.trainingId === tid));
+        if (!evals.length) {
+          document.getElementById("teSummary").innerHTML = kpiCard("⭐", "No evaluations", "for this filter");
+          document.getElementById("teTable").innerHTML = `<p class="muted">No trainer evaluations match the selected filters.</p>`;
+          if (App.charts["teTrendChart"]) App.charts["teTrendChart"].destroy();
+          return;
+        }
+        const avgOf = (key) => Math.round(evals.reduce((s, e) => s + e.ratings[key], 0) / evals.length / 5 * 100);
+        const avgOverall = evals.reduce((s, e) => s + evalOverall(e.ratings), 0) / evals.length;
+        document.getElementById("teSummary").innerHTML = [
+          kpiCard("⭐", "Average Rating", avgOverall.toFixed(1) + " / 5"),
+          kpiCard("🎯", "Training Relevance", avgOf('relevance') + "%"),
+          kpiCard("🧠", "Trainer Knowledge", avgOf('knowledge') + "%"),
+          kpiCard("🛠", "Practical Value", avgOf('practical') + "%"),
+          kpiCard("💬", "Communication", avgOf('communication') + "%"),
+          kpiCard("🙋", "Engagement", avgOf('engagement') + "%"),
+          kpiCard("❓", "Question Handling", avgOf('questionHandling') + "%")
+        ].join('');
+        document.getElementById("teTable").innerHTML = table(
+          ["Trainer", "Training", "Department", "Date", "Overall Rating", "Comments"],
+          evals.slice(0, 100).map(e => `<tr>
+        <td>${e.trainer}</td><td>${(trainingById(e.trainingId) || {}).title || e.trainingId}</td><td>${e.department}</td>
+        <td>${e.date}</td><td>${starRating(evalOverall(e.ratings))} (${evalOverall(e.ratings).toFixed(1)})</td><td class="muted">${e.comments}</td>
+      </tr>`)
+        );
+        const byTrainer = {};
+        evals.forEach(e => { (byTrainer[e.trainer] = byTrainer[e.trainer] || []).push(evalOverall(e.ratings)); });
+        const labels = Object.keys(byTrainer);
+        chart("teTrendChart", "bar", {
+          labels, datasets: [{ label: "Average Rating (/5)", data: labels.map(k => +(byTrainer[k].reduce((a, b) => a + b, 0) / byTrainer[k].length).toFixed(2)), backgroundColor: "#9B1B2E" }]
+        }, { scales: { y: { max: 5 } } });
+      };
+      ["teTrainer", "teDept", "teTraining"].forEach(id => document.getElementById(id).onchange = draw);
+      draw();
+    }
+
+    /* ============================================================
+       4. TRAINING DOCUMENTS — auto-generated from Training Records
+       ============================================================ */
+    function renderTrainingDocuments(mount) {
+      const trainings = allTrainings();
+      App.state.tdTrainingId = App.state.tdTrainingId || (trainings[0] ? trainings[0].id : null);
+      App.state.tdTab = App.state.tdTab || "plan";
+      const tabs = [
+        ["plan", "📄", "Training Plan"], ["material", "📚", "Training Material"],
+        ["attendance", "👥", "Attendance Sheet"], ["assessment", "📝", "Assessment"],
+        ["evaluation", "⭐", "Evaluation Form"], ["certificate", "🏆", "Certificate"],
+        ["evidence", "📸", "Training Evidence"]
+      ];
+      mount.innerHTML = `
+    <div class="page-head"><div><h1>📁 Training Documents</h1><p class="muted">Automatically generated from Training Records — no repeat data entry</p></div></div>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px;">
+      <select id="tdTraining" class="select" style="min-width:260px;">${trainings.map(t => `<option value="${t.id}" ${App.state.tdTrainingId === t.id ? 'selected' : ''}>${t.id} — ${t.title} (${t.date})</option>`).join('')}</select>
+    </div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px;">
+      ${tabs.map(([k, icon, label]) => `<button class="btn-small td-tab ${App.state.tdTab === k ? 'active' : ''}" data-tab="${k}">${icon} ${label}</button>`).join('')}
+    </div>
+    <div id="tdSubMount" class="doc-print-area"></div>`;
+      document.getElementById("tdTraining").onchange = (e) => { App.state.tdTrainingId = e.target.value; renderTrainingDocuments(mount); };
+      document.querySelectorAll(".td-tab").forEach(b => b.onclick = () => { App.state.tdTab = b.dataset.tab; renderTrainingDocuments(mount); });
+      const tr = trainingById(App.state.tdTrainingId);
+      const sub = document.getElementById("tdSubMount");
+      if (!tr) { sub.innerHTML = `<p class="muted">No training records yet.</p>`; return; }
+      const fns = { plan: docTrainingPlan, material: docTrainingMaterial, attendance: docAttendanceSheet, assessment: docAssessment, evaluation: docEvaluationForm, certificate: docCertificate, evidence: docTrainingEvidence };
+      (fns[App.state.tdTab] || docTrainingPlan)(sub, tr);
+    }
+    function docHeader(tr, docTitle) {
+      return `<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:14px;">
+      <div><h2 style="margin:0 0 4px;">${docTitle}</h2><p class="muted" style="margin:0;">Training ID: <b>${tr.id}</b> · ${tr.title}</p></div>
+      <button class="btn-small" onclick="window.print()">🖨 Print / Export PDF</button>
+    </div>`;
+    }
+    function docTrainingPlan(el, tr) {
+      const course = courseById(tr.courseId);
+      el.innerHTML = `
+    ${docHeader(tr, "📄 Training Plan")}
+    <div class="form-grid">
+      <div><b>Training ID</b><div>${tr.id}</div></div>
+      <div><b>Training Name</b><div>${tr.title}</div></div>
+      <div><b>Objective</b><div>Enable participants to demonstrate competency in ${course ? course.topic : tr.title}.</div></div>
+      <div><b>Department</b><div>${tr.department}</div></div>
+      <div><b>Trainer</b><div>${tr.trainer}</div></div>
+      <div><b>Date</b><div>${tr.date}</div></div>
+      <div><b>Time</b><div>${tr.time}</div></div>
+      <div><b>Venue</b><div>${tr.venue}</div></div>
+      <div><b>Participants</b><div>${tr.participants.length}</div></div>
+      <div><b>Training Method</b><div>Instructor-led${course ? ' + ' + course.type.toUpperCase() : ''}</div></div>
+      <div><b>Required Materials</b><div>Projector, Handouts${course ? ', ' + course.type + ' module' : ''}</div></div>
+      <div><b>Assessment Method</b><div>MCQ + Written</div></div>
+      <div><b>Pass Mark</b><div>70%</div></div>
+    </div>
+    <p style="margin-top:14px;"><b>Agenda</b></p>
+    <ol>
+      <li>Introduction &amp; objectives (10 min)</li>
+      <li>Core content — ${course ? course.topic : tr.title} (${course ? course.duration : '40 min'})</li>
+      <li>Practical demonstration / discussion (15 min)</li>
+      <li>Assessment &amp; Q/A (15 min)</li>
+    </ol>`;
+    }
+    function docTrainingMaterial(el, tr) {
+      const course = courseById(tr.courseId);
+      const mats = (course && course.materials) || [];
+      el.innerHTML = `
+    ${docHeader(tr, "📚 Training Material")}
+    <div class="form-grid" style="margin-bottom:14px;">
+      <div><b>Training ID</b><div>${tr.id}</div></div>
+      <div><b>Training Name</b><div>${tr.title}</div></div>
+      <div><b>Topic</b><div>${course ? course.topic : '—'}</div></div>
+      <div><b>Trainer</b><div>${tr.trainer}</div></div>
+    </div>
+    <div id="tdMatTable"></div>
+    <button class="btn-primary" id="tdOpenElearning" style="margin-top:12px;">Open in E-Learning →</button>`;
+      document.getElementById("tdMatTable").innerHTML = table(
+        ["Training ID", "Training Name", "File", "Uploaded Date", "Status"],
+        mats.length ? mats.map(m => `<tr><td>${tr.id}</td><td>${tr.title}</td><td>${m.title} (${m.type})</td><td>${m.uploadedAt}</td><td><span class="pill pill-green">Available</span></td></tr>`)
+          : [`<tr><td colspan="5" class="muted">No material uploaded yet for this course. Add it from E-Learning.</td></tr>`]
+      );
+      document.getElementById("tdOpenElearning").onclick = () => navigate("#/course/" + tr.courseId);
+    }
+    function docAttendanceSheet(el, tr) {
+      const rows = trainingParticipantRows(tr);
+      const present = rows.filter(r => r.att && r.att.status === "Present").length;
+      el.innerHTML = `
+    ${docHeader(tr, "👥 Attendance Sheet")}
+    <div class="form-grid" style="margin-bottom:14px;">
+      <div><b>Training ID</b><div>${tr.id}</div></div><div><b>Training Name</b><div>${tr.title}</div></div>
+      <div><b>Date</b><div>${tr.date}</div></div><div><b>Department</b><div>${tr.department}</div></div>
+      <div><b>Trainer</b><div>${tr.trainer}</div></div><div><b>Venue</b><div>${tr.venue}</div></div>
+      <div><b>Present</b><div>${present}/${rows.length}</div></div>
+    </div>
+    <div id="tdAttTable"></div>`;
+      document.getElementById("tdAttTable").innerHTML = table(
+        ["Employee ID", "Employee Name", "Department", "Attendance Status"],
+        rows.map(r => `<tr><td>${r.emp.id}</td><td>${r.emp.name}</td><td>${r.emp.department}</td><td>${r.att ? statusPill(r.att.status) : '—'}</td></tr>`)
+      );
+    }
+    function docAssessment(el, tr) {
+      const rows = trainingParticipantRows(tr).filter(r => r.post);
+      el.innerHTML = `
+    ${docHeader(tr, "📝 Assessment")}
+    <div class="form-grid" style="margin-bottom:14px;">
+      <div><b>Training ID</b><div>${tr.id}</div></div><div><b>Training Name</b><div>${tr.title}</div></div>
+      <div><b>Training Date</b><div>${tr.date}</div></div><div><b>Pass Mark</b><div>70%</div></div>
+    </div>
+    <div id="tdAssTable"></div>`;
+      document.getElementById("tdAssTable").innerHTML = table(
+        ["Employee ID", "Employee Name", "Department", "Score", "Result", "Retake Status"],
+        rows.length ? rows.map(r => `<tr><td>${r.emp.id}</td><td>${r.emp.name}</td><td>${r.emp.department}</td><td>${r.post.score}%</td>
+      <td>${r.post.passed ? '<span class="pill pill-green">PASS</span>' : '<span class="pill pill-red">FAIL</span>'}</td>
+      <td>${r.post.passed ? 'Not Required' : 'Retake Required'}</td></tr>`)
+          : [`<tr><td colspan="6" class="muted">No assessment recorded yet for this training.</td></tr>`]
+      );
+    }
+    function docEvaluationForm(el, tr) {
+      const evals = (App.db.trainerEvaluations || []).filter(e => e.trainingId === tr.id);
+      const crit = [["knowledge", "Trainer Knowledge"], ["communication", "Communication"], ["practical", "Practical Explanation"], ["material", "Training Material"], ["engagement", "Engagement"], ["questionHandling", "Question Handling"], ["relevance", "Relevance"]];
+      const avg = (k) => evals.length ? (evals.reduce((s, e) => s + e.ratings[k], 0) / evals.length) : 0;
+      el.innerHTML = `
+    ${docHeader(tr, "⭐ Evaluation Form")}
+    <div class="form-grid" style="margin-bottom:14px;">
+      <div><b>Training ID</b><div>${tr.id}</div></div><div><b>Training Name</b><div>${tr.title}</div></div>
+      <div><b>Trainer</b><div>${tr.trainer}</div></div><div><b>Department</b><div>${tr.department}</div></div>
+      <div><b>Training Date</b><div>${tr.date}</div></div><div><b>Responses</b><div>${evals.length}</div></div>
+    </div>
+    <div id="tdEvalTable"></div>
+    <p style="margin-top:14px;"><b>Comments</b></p>
+    <ul>${evals.length ? evals.map(e => `<li>${e.comments}</li>`).join('') : '<li class="muted">No comments submitted yet.</li>'}</ul>`;
+      document.getElementById("tdEvalTable").innerHTML = table(
+        ["Evaluation Criteria", "Average Rating"],
+        crit.map(([k, label]) => `<tr><td>${label}</td><td>${starRating(avg(k))} (${avg(k).toFixed(1)}/5)</td></tr>`)
+          .concat([`<tr><td><b>Overall Rating</b></td><td><b>${starRating(evals.length ? evalOverall(Object.fromEntries(crit.map(([k]) => [k, avg(k)]))) : 0)} (${(evals.length ? evalOverall(Object.fromEntries(crit.map(([k]) => [k, avg(k)]))) : 0).toFixed(1)}/5)</b></td></tr>`])
+      );
+    }
+    function docCertificate(el, tr) {
+      const rows = trainingParticipantRows(tr);
+      App.state.tdCertEmp = App.state.tdCertEmp && tr.participants.includes(App.state.tdCertEmp) ? App.state.tdCertEmp : (tr.participants[0] || null);
+      el.innerHTML = `
+    ${docHeader(tr, "🏆 Certificate")}
+    <select id="tdCertEmpSel" class="select" style="margin-bottom:14px; min-width:240px;">
+      ${rows.map(r => `<option value="${r.emp.id}" ${App.state.tdCertEmp === r.emp.id ? 'selected' : ''}>${r.emp.id} — ${r.emp.name}</option>`).join('')}
+    </select>
+    <div id="tdCertBody"></div>`;
+      const draw = () => {
+        const r = rows.find(x => x.emp.id === document.getElementById("tdCertEmpSel").value);
+        App.state.tdCertEmp = r.emp.id;
+        const attendedOk = r.att && (r.att.status === "Present" || r.att.status === "Late");
+        const passedOk = r.post && r.post.passed;
+        const completedOk = tr.status === "Completed";
+        const eligible = attendedOk && passedOk && completedOk;
+        const course = courseById(tr.courseId);
+        document.getElementById("tdCertBody").innerHTML = `
+      <div class="form-grid" style="margin-bottom:12px;">
+        <div><b>Employee Name</b><div>${r.emp.name}</div></div><div><b>Employee ID</b><div>${r.emp.id}</div></div>
+        <div><b>Department</b><div>${r.emp.department}</div></div><div><b>Training Name</b><div>${tr.title}</div></div>
+        <div><b>Training ID</b><div>${tr.id}</div></div><div><b>Training Date</b><div>${tr.date}</div></div>
+        <div><b>Trainer</b><div>${tr.trainer}</div></div><div><b>Completion Status</b><div>${statusPill(tr.status)}</div></div>
+      </div>
+      <p><b>Eligibility Checklist</b></p>
+      <ul>
+        <li>${completedOk ? '✅' : '❌'} Training Completed</li>
+        <li>${attendedOk ? '✅' : '❌'} Required Attendance</li>
+        <li>${passedOk ? '✅' : '❌'} Assessment Passed</li>
+      </ul>
+      ${eligible ? `<button class="btn-primary" id="tdCertGenBtn">🏆 Generate Certificate</button>` : `<p class="muted">Certificate cannot be issued until all eligibility conditions are met.</p>`}
+    `;
+        if (eligible) {
+          document.getElementById("tdCertGenBtn").onclick = () => {
+            const existing = (r.emp.certificates || []).find(c => c.courseId === tr.courseId);
+            const cert = existing || { id: "CERT" + tr.id + "-" + r.emp.id, courseId: tr.courseId, courseTitle: course ? course.title : tr.title, score: r.post.score, date: tr.date, trainer: tr.trainer };
+            if (!existing) {
+              r.emp.certificates = r.emp.certificates || [];
+              r.emp.certificates.push(cert);
+              saveDB(App.db);
+            }
+            generateCertificatePNG(cert, r.emp);
+          };
+        }
+      };
+      document.getElementById("tdCertEmpSel").onchange = draw;
+      draw();
+    }
+    function docTrainingEvidence(el, tr) {
+      App.db.trainingEvidence = App.db.trainingEvidence || [];
+      const items = empEvidence(tr.id);
+      el.innerHTML = `
+    ${docHeader(tr, "📸 Training Evidence")}
+    <div class="form-grid" style="margin-bottom:14px;">
+      <div><b>Training ID</b><div>${tr.id}</div></div><div><b>Training Name</b><div>${tr.title}</div></div>
+      <div><b>Date</b><div>${tr.date}</div></div><div><b>Department</b><div>${tr.department}</div></div><div><b>Trainer</b><div>${tr.trainer}</div></div>
+    </div>
+    <div class="evidence-grid" id="tdEvidGrid" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:12px; margin-bottom:16px;"></div>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+      <select id="tdEvidType" class="select">${["Training Photo", "Attendance Proof", "Practical Training Photo", "Assessment Evidence", "Group Photo", "Supporting Document"].map(t => `<option>${t}</option>`).join('')}</select>
+      <input id="tdEvidDesc" placeholder="Short description…" style="flex:1; min-width:160px;"/>
+      <input type="file" id="tdEvidFile" accept="image/*" style="max-width:200px;"/>
+      <button class="btn-primary" id="tdEvidAddBtn">+ Add Evidence</button>
+    </div>`;
+      const drawGrid = () => {
+        const list = empEvidence(tr.id);
+        document.getElementById("tdEvidGrid").innerHTML = list.length ? list.map(x => `
+      <div style="border:1px solid var(--border,#E2E8F0); border-radius:10px; overflow:hidden;">
+        ${x.dataUrl ? `<img src="${x.dataUrl}" style="width:100%; height:100px; object-fit:cover;"/>` : `<div style="height:100px; display:flex; align-items:center; justify-content:center; background:var(--card-bg,#F8FAFC); font-size:28px;">📄</div>`}
+        <div style="padding:8px; font-size:12px;"><b>${x.type}</b><br/><span class="muted">${x.description || ''}</span><br/><span class="muted">${x.date}</span></div>
+      </div>`).join('') : `<p class="muted">No evidence uploaded yet.</p>`;
+      };
+      drawGrid();
+      document.getElementById("tdEvidAddBtn").onclick = () => {
+        const type = document.getElementById("tdEvidType").value;
+        const description = document.getElementById("tdEvidDesc").value.trim();
+        const fileInput = document.getElementById("tdEvidFile");
+        const file = fileInput.files[0];
+        const push = (dataUrl) => {
+          App.db.trainingEvidence.push({ id: "EVD" + Date.now(), trainingId: tr.id, type, description, date: fmtDate(appToday()), dataUrl: dataUrl || null, addedBy: currentUser().name });
+          try { saveDB(App.db); toast("Evidence added."); document.getElementById("tdEvidDesc").value = ""; fileInput.value = ""; drawGrid(); }
+          catch (e) { App.db.trainingEvidence.pop(); toast("Storage limit reached — try a smaller image."); }
+        };
+        if (file) { const reader = new FileReader(); reader.onload = (e) => push(e.target.result); reader.onerror = () => toast("Couldn't read that file."); reader.readAsDataURL(file); }
+        else push(null);
+      };
     }
     function renderNotifications(mount) {
       const user = currentUser();
