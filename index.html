@@ -39,6 +39,8 @@
       --red-bg: #FEE2E2;
       --blue-bg: #DBEAFE;
       --blue: #2563EB;
+      --purple-bg: #EDE4FC;
+      --purple: #7C3AED;
       --gray-bg: #E2E8F0;
       --gray: #475569;
       --shadow: 0 10px 30px rgba(30, 41, 80, 0.08);
@@ -4308,12 +4310,18 @@
       if (!Array.isArray(db.trainers)) { db.trainers = [...TRAINER_POOL]; migrated = true; }
 
       /* ---- Recompute each training session's status against the real current date ---- */
+      /* (status is stored, not derived live, so a session saved earlier as "Upcoming"/"Planned"
+         must be re-checked every load or it stays stuck even after its date has passed) */
       (db.schedule || []).forEach(s => {
         const d = new Date(s.date);
         const newStatus = d < appToday() ? "Completed" : (d < addDays(appToday(), 14) ? "Upcoming" : "Planned");
         if (s.status !== newStatus) { s.status = newStatus; migrated = true; }
       });
 
+      /* ---- Assessment module: Practical Evaluation & On-site Validation record stores ---- */
+      if (!Array.isArray(db.practicalEvaluations)) { db.practicalEvaluations = []; migrated = true; }
+      if (!Array.isArray(db.onsiteValidations)) { db.onsiteValidations = []; migrated = true; }
+      if (!Array.isArray(db.trainerEvaluations)) { db.trainerEvaluations = []; migrated = true; }
 
       /* ---- Rename legacy admin display name to "Admin" ---- */
       if (db.admin && db.admin.name !== "Admin") {
@@ -4972,7 +4980,10 @@
         "Completed": "pill-green", "Present": "pill-green", "Passed": "pill-green", "PASSED": "pill-green",
         "Development Required": "pill-red", "Absent": "pill-red", "Failed": "pill-red", "Critical": "pill-red",
         "Pending": "pill-amber", "Late": "pill-amber", "High": "pill-amber", "Medium": "pill-amber", "Upcoming": "pill-blue",
-        "Planned": "pill-gray", "Scheduled": "pill-blue", "None": "pill-green", "Excused": "pill-gray"
+        "Planned": "pill-gray", "Scheduled": "pill-blue", "None": "pill-green", "Excused": "pill-gray",
+        "Pass": "pill-green", "Fail": "pill-red", "COMPETENT": "pill-green", "NOT YET COMPETENT": "pill-red",
+        "VALIDATED": "pill-green", "NOT VALIDATED": "pill-red", "Excellent": "pill-green", "On Track": "pill-amber",
+        "Needs Attention": "pill-red"
       };
       return `<span class="pill ${map[status] || 'pill-gray'}">${status}</span>`;
     }
@@ -7067,43 +7078,517 @@
     /* ---------- Assessments Hub ---------- */
     function renderAssessments(mount) {
       const db = App.db, role = App.session.role;
-      if (role === "admin") {
+      if (role === "trainer") {
+        const user = currentUser();
+        const dept = user.assignedDept || [];
+        const trainees = db.employees.filter(e => dept.includes(e.department));
         const rows = [];
-        db.employees.forEach(e => Object.entries(e.attempts).forEach(([cid, list]) => list.filter(a => a.type === 'post').forEach(a => rows.push({ e, cid, a }))));
-        mount.innerHTML = `<div class="page-head"><div><h1>Assessments</h1><p class="muted">All post-assessment results company-wide</p></div></div>
+        trainees.forEach(e => Object.entries(e.attempts || {}).forEach(([cid, list]) => list.filter(a => a.type === 'post').forEach(a => rows.push({ e, cid, a }))));
+        rows.sort((a, b) => new Date(b.a.date) - new Date(a.a.date));
+        const passed = rows.filter(r => r.a.passed).length;
+        mount.innerHTML = `<div class="page-head"><div><h1>Assessments</h1><p class="muted">Post-assessment results for your assigned departments: ${dept.join(', ')}</p></div></div>
+      <div class="kpi-grid" style="margin-bottom:14px;">
+        ${kpiCard("👥", "Trainees", trainees.length)}
+        ${kpiCard("📝", "Assessments Taken", rows.length)}
+        ${kpiCard("✅", "Passed", passed)}
+        ${kpiCard("🎯", "Pass Rate", pct(passed, rows.length) + "%")}
+      </div>
       <div id="assessTable"></div>`;
-        document.getElementById("assessTable").innerHTML = table(
+        document.getElementById("assessTable").innerHTML = rows.length ? table(
           ["Employee", "Course", "Score", "Result", "Date"],
           rows.slice(0, 150).map(r => `<tr class="row-click" data-emp="${r.e.id}"><td>${r.e.name} (${r.e.id})</td><td>${courseTitle(r.cid)}</td><td>${r.a.score}%</td><td>${statusPill(r.a.passed ? 'Passed' : 'Failed')}</td><td>${r.a.date}</td></tr>`)
-        );
+        ) : '<p class="muted">No assessment results yet for your assigned departments.</p>';
         bindRowClicks(mount);
         return;
       }
-      const user = currentUser();
-      const myCourses = role === 'trainer'
-        ? db.courses.filter(c => c.dept === 'All' || (user.assignedDept || []).includes(c.dept))
-        : db.courses.filter(c => courseVisibleToDept(c, user.department));
-      mount.innerHTML = `<div class="page-head"><div><h1>Assessments</h1><p class="muted">Pre/Post assessments for your assigned courses</p></div></div>
-    <div class="course-grid" id="aGrid"></div>`;
-      document.getElementById("aGrid").innerHTML = myCourses.length ? myCourses.map(c => {
-        const prog = progressOf(user, c.id);
-        const attempts = user.attempts[c.id] || [];
-        const passed = attempts.some(a => a.type === 'post' && a.passed);
-        return `<div class="course-card">
-      <div class="course-thumb ${c.type}">${c.type === 'pdf' ? '📄' : '▶️'}</div>
-      <div class="course-body">
-        <h4>${c.title}</h4>
-        <div class="course-meta">${c.dept} · ${attempts.length} attempt(s)</div>
-        ${passed ? '<div class="banner-success small">✓ Passed</div>' : ''}
-        <div class="course-foot">
-          <button class="btn-small pre-btn" data-c="${c.id}">Pre-Test</button>
-          <button class="btn-primary post-btn" data-c="${c.id}" ${prog.completed ? '' : 'disabled'}>Post-Test</button>
-        </div>
+
+      /* ===== Assessment module: Dashboard / Pre / Post / Practical / On-site (admin + employee) ===== */
+      App.state.asmTab = App.state.asmTab || "dashboard";
+      const tabs = [
+        ["dashboard", "📊", "Assessment Dashboard"], ["pre", "📝", "Pre Assessment"],
+        ["post", "📊", "Post Assessment"], ["practical", "🔧", "Practical Evaluation"],
+        ["onsite", "✅", "On-site Validation"]
+      ];
+      if (role === "admin") tabs.push(["master", "🗂️", "Master Table"]);
+      mount.innerHTML = `
+    <div class="page-head"><div><h1>📝 Assessment</h1><p class="muted">Pre-Assessment, Post-Assessment, Practical Evaluation &amp; On-site Validation — connected by Employee ID</p></div></div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:18px;">
+      ${tabs.map(([k, icon, label]) => `<button class="btn-small asm-tab ${App.state.asmTab === k ? 'active' : ''}" data-tab="${k}">${icon} ${label}</button>`).join('')}
+    </div>
+    <div id="asmSubMount"></div>`;
+      document.querySelectorAll(".asm-tab").forEach(b => b.onclick = () => { App.state.asmTab = b.dataset.tab; renderAssessments(mount); });
+      const sub = document.getElementById("asmSubMount");
+      const fns = { dashboard: renderASMDashboard, pre: renderASMPre, post: renderASMPost, practical: renderASMPractical, onsite: renderASMOnsite, master: renderASMMaster };
+      (fns[App.state.asmTab] || renderASMDashboard)(sub);
+    }
+
+    /* ---------- Assessment module: shared scope & data helpers ---------- */
+    function asmScopeEmployees() {
+      if (App.session.role === "admin") return App.db.employees;
+      const me = currentUser();
+      return me ? [me] : [];
+    }
+    function asmStatusFor(ratio) {
+      if (ratio >= 80) return { t: "Excellent", c: "pill-green" };
+      if (ratio >= 50) return { t: "On Track", c: "pill-amber" };
+      return { t: "Needs Attention", c: "pill-red" };
+    }
+    function asmNextId(arr, prefix) {
+      const max = arr.reduce((m, x) => Math.max(m, parseInt(String(x.id || "").replace(prefix, "")) || 0), 0);
+      return prefix + pad(max + 1, 3);
+    }
+    function practicalEvalFor(empId, courseId) { return (App.db.practicalEvaluations || []).find(p => p.empId === empId && p.courseId === courseId); }
+    function onsiteValidationFor(empId, courseId) { return (App.db.onsiteValidations || []).find(v => v.empId === empId && v.courseId === courseId); }
+
+    function preAssessmentRows(scope) {
+      const rows = [];
+      scope.forEach(emp => (emp.trainingRecords || []).forEach(tr => {
+        const attempts = ((emp.attempts && emp.attempts[tr.courseId]) || []).filter(a => a.type === "pre");
+        const last = attempts[attempts.length - 1] || null;
+        rows.push({
+          id: "PRE-" + tr.courseId + "-" + emp.id, emp, tr, course: courseById(tr.courseId),
+          score: last ? last.score : null, status: last ? "Completed" : "Pending",
+          attempt: attempts.length, date: last ? last.date : tr.date
+        });
+      }));
+      return rows;
+    }
+    function postAssessmentRows(scope) {
+      const rows = [];
+      scope.forEach(emp => (emp.trainingRecords || []).forEach(tr => {
+        const preA = bestAttempt(emp, tr.courseId, "pre");
+        const postAttempts = ((emp.attempts && emp.attempts[tr.courseId]) || []).filter(a => a.type === "post");
+        const postA = postAttempts[postAttempts.length - 1] || null;
+        rows.push({
+          id: "POST-" + tr.courseId + "-" + emp.id, emp, tr, course: courseById(tr.courseId),
+          pre: preA ? preA.score : null, post: postA ? postA.score : null,
+          improvement: (preA && postA) ? (postA.score - preA.score) : null,
+          status: postA ? (postA.score >= 70 ? "Pass" : "Fail") : "Pending",
+          attempt: postAttempts.length, date: postA ? postA.date : null
+        });
+      }));
+      return rows;
+    }
+    function practicalRows(scope) {
+      const rows = [];
+      scope.forEach(emp => (emp.trainingRecords || []).forEach(tr => {
+        const postA = bestAttempt(emp, tr.courseId, "post");
+        if (!postA || postA.score < 70) return; // only appears after passing Post Assessment
+        const pe = practicalEvalFor(emp.id, tr.courseId);
+        rows.push({ emp, tr, course: courseById(tr.courseId), postScore: postA.score, evalRecord: pe, status: pe ? pe.status : "Pending" });
+      }));
+      return rows;
+    }
+    function onsiteRows(scope) {
+      const rows = [];
+      scope.forEach(emp => (emp.trainingRecords || []).forEach(tr => {
+        const pe = practicalEvalFor(emp.id, tr.courseId);
+        if (!pe || pe.status !== "COMPETENT") return; // only appears once Practical is COMPETENT
+        const ov = onsiteValidationFor(emp.id, tr.courseId);
+        rows.push({ emp, tr, course: courseById(tr.courseId), practicalScore: pe.percentage, valRecord: ov, status: ov ? ov.result : "Pending" });
+      }));
+      return rows;
+    }
+
+    /* ---- 📊 Assessment Dashboard ---- */
+    function renderASMDashboard(el) {
+      const scope = asmScopeEmployees();
+      const summarize = (list) => {
+        const total = list.length, complete = list.filter(r => r.status !== "Pending").length, pending = total - complete;
+        const ratio = total ? Math.round((complete / total) * 100) : 0;
+        return { total, complete, pending, ratio };
+      };
+      const pre = summarize(preAssessmentRows(scope)), post = summarize(postAssessmentRows(scope)), prac = summarize(practicalRows(scope));
+      const totalRow = { total: pre.total + post.total + prac.total, complete: pre.complete + post.complete + prac.complete, pending: pre.pending + post.pending + prac.pending };
+      totalRow.ratio = totalRow.total ? Math.round((totalRow.complete / totalRow.total) * 100) : 0;
+      const line = (label, s) => { const st = asmStatusFor(s.ratio); return `<tr><td><b>${label}</b></td><td>${s.total}</td><td>${s.complete}</td><td>${s.pending}</td><td>${s.ratio}%</td><td><span class="pill ${st.c}">${st.t}</span></td></tr>`; };
+      el.innerHTML = `
+    <div class="kpi-grid" style="margin-bottom:16px;">
+      ${kpiCard("📊", "Total Assessment", totalRow.total)}
+      ${kpiCard("✅", "Complete", totalRow.complete)}
+      ${kpiCard("🕓", "Pending", totalRow.pending)}
+      ${kpiCard("🎯", "Overall Ratio", totalRow.ratio + "%")}
+    </div>
+    <div id="asmDashTable"></div>`;
+      document.getElementById("asmDashTable").innerHTML = table(
+        ["Criteria", "Total", "Complete", "Pending", "Ratio", "Status"],
+        [line("Total Assessment", totalRow), line("Pre-Assessment", pre), line("Post-Assessment", post), line("Practical Evaluation", prac)]
+      );
+    }
+
+    /* ---- 📝 Pre Assessment ---- */
+    function renderASMPre(el) {
+      const isAdmin = App.session.role === "admin", scope = asmScopeEmployees();
+      el.innerHTML = `
+    ${isAdmin ? `
+    <div style="margin-bottom:16px; padding:14px; border:1px solid var(--border,#E2E8F0); border-radius:10px;">
+      <b>Record Pre-Assessment</b>
+      <div class="form-grid" style="margin-top:10px;">
+        <label>Employee<select id="preEmp" class="select"><option value="">Select Employee</option>${App.db.employees.map(e => `<option value="${e.id}">${e.name} (${e.id})</option>`).join('')}</select></label>
+        <label>Training<select id="preTr" class="select"><option value="">Select Training</option></select></label>
       </div>
-    </div>`;
-      }).join('') : '<p class="muted">No assessments available for your department yet.</p>';
-      document.querySelectorAll(".pre-btn").forEach(b => b.onclick = () => startAssessment(b.dataset.c, "pre"));
-      document.querySelectorAll(".post-btn").forEach(b => { if (!b.disabled) b.onclick = () => startAssessment(b.dataset.c, "post"); });
+      <div id="preAutoFill" class="muted" style="margin-top:8px;"></div>
+      <div class="form-grid" style="margin-top:10px;">
+        <label>Score (%)<input id="preScoreInput" type="number" min="0" max="100" class="select" placeholder="e.g. 55" disabled/></label>
+      </div>
+      <button class="btn-primary" id="preSubmitBtn" style="margin-top:10px;" disabled>Save Pre-Assessment</button>
+    </div>` : ''}
+    <div id="preTableWrap"></div>`;
+      if (isAdmin) {
+        const empSel = document.getElementById("preEmp"), trSel = document.getElementById("preTr");
+        const scoreInput = document.getElementById("preScoreInput"), submitBtn = document.getElementById("preSubmitBtn");
+        empSel.onchange = () => {
+          const emp = empById(empSel.value);
+          trSel.innerHTML = `<option value="">Select Training</option>` + (emp ? (emp.trainingRecords || []).map(tr => `<option value="${tr.courseId}">${tr.title}</option>`).join('') : '');
+          document.getElementById("preAutoFill").innerHTML = ''; scoreInput.disabled = true; submitBtn.disabled = true;
+        };
+        trSel.onchange = () => {
+          const emp = empById(empSel.value);
+          const tr = emp && (emp.trainingRecords || []).find(r => r.courseId === trSel.value);
+          if (!emp || !tr) { document.getElementById("preAutoFill").innerHTML = ''; scoreInput.disabled = true; submitBtn.disabled = true; return; }
+          const session = trainingById(tr.trainingId);
+          document.getElementById("preAutoFill").innerHTML = `<div class="form-grid">
+        <div><b>Employee Name</b><div>${emp.name}</div></div><div><b>Employee ID</b><div>${emp.id}</div></div>
+        <div><b>Department</b><div>${emp.department}</div></div><div><b>Designation</b><div>${emp.designation || '-'}</div></div>
+        <div><b>Training Name</b><div>${tr.title}</div></div><div><b>Trainer</b><div>${session ? session.trainer : '-'}</div></div>
+        <div><b>Training Date</b><div>${tr.date}</div></div></div>`;
+          scoreInput.disabled = false; submitBtn.disabled = false;
+        };
+        submitBtn.onclick = () => {
+          const emp = empById(empSel.value), courseId = trSel.value, score = parseInt(scoreInput.value, 10);
+          if (!emp || !courseId || isNaN(score) || score < 0 || score > 100) { toast("Select employee, training and enter a valid score."); return; }
+          emp.attempts[courseId] = emp.attempts[courseId] || [];
+          emp.attempts[courseId].push({ date: fmtDate(appToday()), type: "pre", score, passed: score >= 70, detail: [], writtenAnswers: [] });
+          saveDB(App.db);
+          toast("Pre-Assessment recorded.");
+          renderASMPre(el);
+        };
+      }
+      const wrap = document.getElementById("preTableWrap");
+      wrap.innerHTML = `
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
+      <input id="preSearch" placeholder="Search employee / training…" style="flex:1; min-width:180px;"/>
+      ${isAdmin ? `<select id="preDept" class="select">${deptOptionsWithAll("All")}</select>` : ''}
+      <select id="preStatus" class="select"><option value="All">All Status</option><option>Completed</option><option>Pending</option></select>
+    </div>
+    <div id="preTable"></div>`;
+      const draw = () => {
+        const q = (document.getElementById("preSearch").value || '').trim().toLowerCase();
+        const dept = isAdmin ? document.getElementById("preDept").value : "All";
+        const status = document.getElementById("preStatus").value;
+        let rows = preAssessmentRows(scope).filter(r => (dept === "All" || r.emp.department === dept) && (status === "All" || r.status === status) &&
+          (!q || r.emp.name.toLowerCase().includes(q) || r.emp.id.toLowerCase().includes(q) || (r.course && r.course.title.toLowerCase().includes(q))));
+        rows.sort((a, b) => new Date(b.date) - new Date(a.date));
+        document.getElementById("preTable").innerHTML = rows.length ? table(
+          ["Assessment ID", "Employee ID", "Employee", "Department", "Training", "Date", "Score", "Status", "Attempt"],
+          rows.map(r => `<tr>
+        <td>${r.id}</td><td>${r.emp.id}</td><td>${r.emp.name}</td><td>${r.emp.department}</td>
+        <td>${r.course ? r.course.title : r.tr.title}</td><td>${r.date}</td>
+        <td>${r.score !== null ? r.score + '%' : '-'}</td><td>${statusPill(r.status)}</td><td>${r.attempt}</td>
+      </tr>`)
+        ) : `<p class="muted">No pre-assessment records found.</p>`;
+      };
+      document.getElementById("preSearch").oninput = draw;
+      if (isAdmin) document.getElementById("preDept").onchange = draw;
+      document.getElementById("preStatus").onchange = draw;
+      draw();
+    }
+
+    /* ---- 📊 Post Assessment ---- */
+    function renderASMPost(el) {
+      const isAdmin = App.session.role === "admin", scope = asmScopeEmployees();
+      el.innerHTML = `
+    ${isAdmin ? `
+    <div style="margin-bottom:16px; padding:14px; border:1px solid var(--border,#E2E8F0); border-radius:10px;">
+      <b>Record Post-Assessment</b>
+      <div class="form-grid" style="margin-top:10px;">
+        <label>Employee<select id="postEmp" class="select"><option value="">Select Employee</option>${App.db.employees.map(e => `<option value="${e.id}">${e.name} (${e.id})</option>`).join('')}</select></label>
+        <label>Training<select id="postTr" class="select"><option value="">Select Training</option></select></label>
+      </div>
+      <div id="postAutoFill" class="muted" style="margin-top:8px;"></div>
+      <div class="form-grid" style="margin-top:10px;">
+        <label>Post Score (%)<input id="postScoreInput" type="number" min="0" max="100" class="select" placeholder="e.g. 85" disabled/></label>
+      </div>
+      <button class="btn-primary" id="postSubmitBtn" style="margin-top:10px;" disabled>Save Post-Assessment</button>
+    </div>` : ''}
+    <div id="postTableWrap"></div>`;
+      if (isAdmin) {
+        const empSel = document.getElementById("postEmp"), trSel = document.getElementById("postTr");
+        const scoreInput = document.getElementById("postScoreInput"), submitBtn = document.getElementById("postSubmitBtn");
+        empSel.onchange = () => {
+          const emp = empById(empSel.value);
+          trSel.innerHTML = `<option value="">Select Training</option>` + (emp ? (emp.trainingRecords || []).map(tr => `<option value="${tr.courseId}">${tr.title}</option>`).join('') : '');
+          document.getElementById("postAutoFill").innerHTML = ''; scoreInput.disabled = true; submitBtn.disabled = true;
+        };
+        trSel.onchange = () => {
+          const emp = empById(empSel.value);
+          const tr = emp && (emp.trainingRecords || []).find(r => r.courseId === trSel.value);
+          if (!emp || !tr) { document.getElementById("postAutoFill").innerHTML = ''; scoreInput.disabled = true; submitBtn.disabled = true; return; }
+          const preA = bestAttempt(emp, tr.courseId, "pre");
+          document.getElementById("postAutoFill").innerHTML = `<div class="form-grid">
+        <div><b>Employee</b><div>${emp.name} (${emp.id})</div></div><div><b>Department</b><div>${emp.department}</div></div>
+        <div><b>Training</b><div>${tr.title}</div></div>
+        <div><b>Pre Score (auto-fetched)</b><div>${preA ? preA.score + '%' : 'Not taken yet'}</div></div></div>`;
+          scoreInput.disabled = false; submitBtn.disabled = false;
+        };
+        submitBtn.onclick = () => {
+          const emp = empById(empSel.value), courseId = trSel.value, score = parseInt(scoreInput.value, 10);
+          if (!emp || !courseId || isNaN(score) || score < 0 || score > 100) { toast("Select employee, training and enter a valid score."); return; }
+          emp.attempts[courseId] = emp.attempts[courseId] || [];
+          emp.attempts[courseId].push({ date: fmtDate(appToday()), type: "post", score, passed: score >= 70, detail: [], writtenAnswers: [] });
+          const tr = (emp.trainingRecords || []).find(r => r.courseId === courseId);
+          if (tr && score >= 70) { tr.status = "Completed"; tr.completedDate = fmtDate(appToday()); }
+          saveDB(App.db);
+          toast("Post-Assessment recorded.");
+          renderASMPost(el);
+        };
+      }
+      const wrap = document.getElementById("postTableWrap");
+      wrap.innerHTML = `
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
+      <input id="postSearch" placeholder="Search employee / training…" style="flex:1; min-width:180px;"/>
+      ${isAdmin ? `<select id="postDept" class="select">${deptOptionsWithAll("All")}</select>` : ''}
+      <select id="postStatus" class="select"><option value="All">All Status</option><option>Pass</option><option>Fail</option><option>Pending</option></select>
+    </div>
+    <div id="postTable"></div>`;
+      const draw = () => {
+        const q = (document.getElementById("postSearch").value || '').trim().toLowerCase();
+        const dept = isAdmin ? document.getElementById("postDept").value : "All";
+        const status = document.getElementById("postStatus").value;
+        let rows = postAssessmentRows(scope).filter(r => (dept === "All" || r.emp.department === dept) && (status === "All" || r.status === status) &&
+          (!q || r.emp.name.toLowerCase().includes(q) || r.emp.id.toLowerCase().includes(q) || (r.course && r.course.title.toLowerCase().includes(q))));
+        rows.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+        document.getElementById("postTable").innerHTML = rows.length ? table(
+          ["Assessment ID", "Employee ID", "Employee", "Department", "Training", "Pre", "Post", "Improvement", "Status"],
+          rows.map(r => `<tr>
+        <td>${r.id}</td><td>${r.emp.id}</td><td>${r.emp.name}</td><td>${r.emp.department}</td>
+        <td>${r.course ? r.course.title : r.tr.title}</td>
+        <td>${r.pre !== null ? r.pre + '%' : '-'}</td><td>${r.post !== null ? r.post + '%' : '-'}</td>
+        <td>${r.improvement !== null ? (r.improvement >= 0 ? '+' : '') + r.improvement + '%' : '-'}</td>
+        <td>${statusPill(r.status)}</td>
+      </tr>`)
+        ) : `<p class="muted">No post-assessment records found.</p>`;
+      };
+      document.getElementById("postSearch").oninput = draw;
+      if (isAdmin) document.getElementById("postDept").onchange = draw;
+      document.getElementById("postStatus").onchange = draw;
+      draw();
+    }
+
+    /* ---- 🔧 Practical Evaluation ---- */
+    const PRACTICAL_CRITERIA = [
+      ["sop", "SOP Follow-up"], ["safety", "Safety Practice"], ["method", "Correct Work Method"],
+      ["quality", "Quality Awareness"], ["fiveS", "5S Practice"], ["problemSolving", "Problem Solving"]
+    ];
+    function renderASMPractical(el) {
+      const isAdmin = App.session.role === "admin", scope = asmScopeEmployees();
+      el.innerHTML = `<div id="pracTableWrap"></div>`;
+      const draw = () => {
+        const rows = practicalRows(scope);
+        document.getElementById("pracTableWrap").innerHTML = `
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
+        <input id="pracSearch" placeholder="Search employee / training…" style="flex:1; min-width:180px;"/>
+        <select id="pracStatus" class="select"><option value="All">All Status</option><option>Pending</option><option>COMPETENT</option><option>NOT YET COMPETENT</option></select>
+      </div>
+      <div id="pracTable"></div>`;
+        const filterDraw = () => {
+          const q = (document.getElementById("pracSearch").value || '').trim().toLowerCase();
+          const status = document.getElementById("pracStatus").value;
+          let list = rows.filter(r => (status === "All" || r.status === status) && (!q || r.emp.name.toLowerCase().includes(q) || r.emp.id.toLowerCase().includes(q)));
+          document.getElementById("pracTable").innerHTML = list.length ? table(
+            ["Employee", "Department", "Training", "Post Score", "Practical", isAdmin ? "Action" : "Practical Score"],
+            list.map(r => `<tr>
+          <td>${r.emp.name} (${r.emp.id})</td><td>${r.emp.department}</td><td>${r.course ? r.course.title : r.tr.title}</td>
+          <td>${r.postScore}%</td><td>${statusPill(r.status)}</td>
+          <td>${isAdmin
+                ? (r.evalRecord ? `<button class="btn-small prac-view" data-emp="${r.emp.id}" data-c="${r.tr.courseId}">View</button>` : `<button class="btn-small btn-primary prac-eval" data-emp="${r.emp.id}" data-c="${r.tr.courseId}">Evaluate</button>`)
+                : (r.evalRecord ? r.evalRecord.percentage + '%' : '-')}</td>
+        </tr>`)
+          ) : `<p class="muted">No practical evaluation records found.</p>`;
+          if (isAdmin) {
+            document.querySelectorAll(".prac-eval").forEach(b => b.onclick = () => openPracticalEvalForm(b.dataset.emp, b.dataset.c, draw, false));
+            document.querySelectorAll(".prac-view").forEach(b => b.onclick = () => openPracticalEvalForm(b.dataset.emp, b.dataset.c, draw, true));
+          }
+        };
+        document.getElementById("pracSearch").oninput = filterDraw;
+        document.getElementById("pracStatus").onchange = filterDraw;
+        filterDraw();
+      };
+      draw();
+    }
+    function openPracticalEvalForm(empId, courseId, onDone, readOnly) {
+      const emp = empById(empId), course = courseById(courseId);
+      const existing = practicalEvalFor(empId, courseId);
+      const ratingSelect = (key, label) => {
+        const val = existing ? existing.ratings[key] : 0;
+        return `<label>${label}<select id="pe_${key}" class="select" ${readOnly ? 'disabled' : ''}>${[1, 2, 3, 4, 5].map(n => `<option value="${n}" ${val === n ? 'selected' : ''}>${n}/5</option>`).join('')}</select></label>`;
+      };
+      openModal(`Practical Evaluation — ${emp.name}`, `
+    <p class="muted" style="margin-bottom:10px;">Training: <b>${course ? course.title : courseId}</b></p>
+    <div class="form-grid">${PRACTICAL_CRITERIA.map(([k, l]) => ratingSelect(k, l)).join('')}</div>
+    ${!readOnly ? `<button class="btn-primary" id="peSubmitBtn" style="margin-top:14px;">Save Evaluation</button>` : `<p class="muted" style="margin-top:10px;">Total: ${existing.totalScore}/30 · ${existing.percentage}% · <b>${existing.status}</b></p>`}
+  `, {
+        onOpen: (box) => {
+          if (readOnly) return;
+          box.querySelector("#peSubmitBtn").onclick = () => {
+            const ratings = {};
+            PRACTICAL_CRITERIA.forEach(([k]) => ratings[k] = parseInt(box.querySelector("#pe_" + k).value, 10));
+            const totalScore = Object.values(ratings).reduce((a, b) => a + b, 0);
+            const percentage = Math.round((totalScore / 30) * 100);
+            const status = percentage >= 80 ? "COMPETENT" : "NOT YET COMPETENT";
+            const db = App.db;
+            db.practicalEvaluations = db.practicalEvaluations || [];
+            const idx = db.practicalEvaluations.findIndex(p => p.empId === empId && p.courseId === courseId);
+            const trRec = (emp.trainingRecords || []).find(r => r.courseId === courseId);
+            const record = { id: idx >= 0 ? db.practicalEvaluations[idx].id : asmNextId(db.practicalEvaluations, "PRC-"), empId, courseId, trainingId: trRec ? trRec.trainingId : null, date: fmtDate(appToday()), evaluator: currentUser().name, ratings, totalScore, percentage, status };
+            if (idx >= 0) db.practicalEvaluations[idx] = record; else db.practicalEvaluations.push(record);
+            saveDB(db);
+            closeModal();
+            toast("Practical evaluation saved.");
+            onDone && onDone();
+          };
+        }
+      });
+    }
+
+    /* ---- ✅ On-site Validation ---- */
+    const ONSITE_CHECKS = [
+      ["sop", "SOP Followed"], ["safety", "Safety Followed"], ["process", "Correct Process"],
+      ["quality", "Quality Maintained"], ["independent", "Independent Work"], ["practice", "Workplace Practice"]
+    ];
+    function renderASMOnsite(el) {
+      const isAdmin = App.session.role === "admin", scope = asmScopeEmployees();
+      el.innerHTML = `<div id="onsTableWrap"></div>`;
+      const draw = () => {
+        const rows = onsiteRows(scope);
+        document.getElementById("onsTableWrap").innerHTML = `
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
+        <input id="onsSearch" placeholder="Search employee / training…" style="flex:1; min-width:180px;"/>
+        <select id="onsStatus" class="select"><option value="All">All Status</option><option>Pending</option><option>VALIDATED</option><option>NOT VALIDATED</option></select>
+      </div>
+      <div id="onsTable"></div>`;
+        const filterDraw = () => {
+          const q = (document.getElementById("onsSearch").value || '').trim().toLowerCase();
+          const status = document.getElementById("onsStatus").value;
+          let list = rows.filter(r => (status === "All" || r.status === status) && (!q || r.emp.name.toLowerCase().includes(q) || r.emp.id.toLowerCase().includes(q)));
+          document.getElementById("onsTable").innerHTML = list.length ? table(
+            ["Employee ID", "Employee", "Department", "Training", "Pre", "Post", "Practical", isAdmin ? "Action" : "Result"],
+            list.map(r => {
+              const emp = r.emp, preA = bestAttempt(emp, r.tr.courseId, "pre"), postA = bestAttempt(emp, r.tr.courseId, "post");
+              return `<tr>
+          <td>${emp.id}</td><td>${emp.name}</td><td>${emp.department}</td><td>${r.course ? r.course.title : r.tr.title}</td>
+          <td>${preA ? preA.score + '%' : '-'}</td><td>${postA ? postA.score + '%' : '-'}</td><td>${r.practicalScore}%</td>
+          <td>${isAdmin
+                  ? (r.valRecord ? `<button class="btn-small ons-view" data-emp="${emp.id}" data-c="${r.tr.courseId}">View</button>` : `<button class="btn-small btn-primary ons-validate" data-emp="${emp.id}" data-c="${r.tr.courseId}">Validate</button>`)
+                  : statusPill(r.status)}</td>
+        </tr>`;
+            })
+          ) : `<p class="muted">No on-site validation records found.</p>`;
+          if (isAdmin) {
+            document.querySelectorAll(".ons-validate").forEach(b => b.onclick = () => openOnsiteValidationForm(b.dataset.emp, b.dataset.c, draw, false));
+            document.querySelectorAll(".ons-view").forEach(b => b.onclick = () => openOnsiteValidationForm(b.dataset.emp, b.dataset.c, draw, true));
+          }
+        };
+        document.getElementById("onsSearch").oninput = filterDraw;
+        document.getElementById("onsStatus").onchange = filterDraw;
+        filterDraw();
+      };
+      draw();
+    }
+    function openOnsiteValidationForm(empId, courseId, onDone, readOnly) {
+      const emp = empById(empId), course = courseById(courseId);
+      const pe = practicalEvalFor(empId, courseId);
+      const preA = bestAttempt(emp, courseId, "pre"), postA = bestAttempt(emp, courseId, "post");
+      const existing = onsiteValidationFor(empId, courseId);
+      openModal(`On-site Validation — ${emp.name}`, `
+    <div class="form-grid" style="margin-bottom:10px;">
+      <div><b>Employee ID</b><div>${emp.id}</div></div><div><b>Employee Name</b><div>${emp.name}</div></div>
+      <div><b>Department</b><div>${emp.department}</div></div><div><b>Position</b><div>${emp.designation || '-'}</div></div>
+      <div><b>Training</b><div>${course ? course.title : courseId}</div></div>
+      <div><b>Pre Assessment</b><div>${preA ? preA.score + '%' : '-'}</div></div>
+      <div><b>Post Assessment</b><div>${postA ? postA.score + '%' : '-'}</div></div>
+      <div><b>Practical</b><div>${pe ? pe.percentage + '%' : '-'}</div></div>
+    </div>
+    <div class="form-grid">
+      ${ONSITE_CHECKS.map(([k, l]) => `<label>${l}<select id="oc_${k}" class="select" ${readOnly ? 'disabled' : ''}>
+        <option value="yes" ${(!existing || existing.checklist[k]) ? 'selected' : ''}>✅ Yes</option>
+        <option value="no" ${(existing && !existing.checklist[k]) ? 'selected' : ''}>❌ No</option>
+      </select></label>`).join('')}
+    </div>
+    ${!readOnly ? `<button class="btn-primary" id="ovSubmitBtn" style="margin-top:14px;">Submit Validation</button>` : `<p class="muted" style="margin-top:10px;">Result: <b>${existing.result}</b> · Validated By: ${existing.validatedBy} · Date: ${existing.date}</p>`}
+  `, {
+        onOpen: (box) => {
+          if (readOnly) return;
+          box.querySelector("#ovSubmitBtn").onclick = () => {
+            const checklist = {};
+            ONSITE_CHECKS.forEach(([k]) => checklist[k] = box.querySelector("#oc_" + k).value === "yes");
+            const allYes = Object.values(checklist).every(Boolean);
+            const db = App.db;
+            db.onsiteValidations = db.onsiteValidations || [];
+            const idx = db.onsiteValidations.findIndex(v => v.empId === empId && v.courseId === courseId);
+            const trRec = (emp.trainingRecords || []).find(r => r.courseId === courseId);
+            const record = { id: idx >= 0 ? db.onsiteValidations[idx].id : asmNextId(db.onsiteValidations, "OSV-"), empId, courseId, trainingId: trRec ? trRec.trainingId : null, checklist, result: allYes ? "VALIDATED" : "NOT VALIDATED", validatedBy: currentUser().name, date: fmtDate(appToday()) };
+            if (idx >= 0) db.onsiteValidations[idx] = record; else db.onsiteValidations.push(record);
+            saveDB(db);
+            closeModal();
+            toast("On-site validation saved.");
+            onDone && onDone();
+          };
+        }
+      });
+    }
+
+    /* ---- 🗂️ Master Assessment Table (admin) ---- */
+    function renderASMMaster(el) {
+      const rows = [];
+      App.db.employees.forEach(emp => (emp.trainingRecords || []).forEach(tr => {
+        const preA = bestAttempt(emp, tr.courseId, "pre"), postA = bestAttempt(emp, tr.courseId, "post");
+        const pe = practicalEvalFor(emp.id, tr.courseId), ov = onsiteValidationFor(emp.id, tr.courseId);
+        let finalStatus, cls;
+        if (ov && ov.result === "VALIDATED") { finalStatus = "🟢 Validated"; cls = "pill-green"; }
+        else if (postA && postA.score < 70) { finalStatus = "🔴 Not Competent"; cls = "pill-red"; }
+        else { finalStatus = "🟡 Pending"; cls = "pill-amber"; }
+        rows.push({ emp, tr, course: courseById(tr.courseId), pre: preA ? preA.score : null, post: postA ? postA.score : null, practical: pe ? pe.percentage : null, onsite: ov ? "✅" : "⏳", finalStatus, cls });
+      }));
+      el.innerHTML = `
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
+      <input id="mstSearch" placeholder="Search employee / training…" style="flex:1; min-width:180px;"/>
+      <select id="mstDept" class="select">${deptOptionsWithAll("All")}</select>
+      <select id="mstStatus" class="select"><option value="All">All Status</option><option value="Validated">Validated</option><option value="Pending">Pending</option><option value="Not Competent">Not Competent</option></select>
+      <button class="btn-small" id="mstExport">⬇ Export CSV</button>
+    </div>
+    <div id="mstTable"></div>`;
+      const draw = () => {
+        const q = (document.getElementById("mstSearch").value || '').trim().toLowerCase();
+        const dept = document.getElementById("mstDept").value;
+        const status = document.getElementById("mstStatus").value;
+        let list = rows.filter(r => (dept === "All" || r.emp.department === dept) && (status === "All" || r.finalStatus.includes(status)) &&
+          (!q || r.emp.name.toLowerCase().includes(q) || r.emp.id.toLowerCase().includes(q) || (r.course && r.course.title.toLowerCase().includes(q))));
+        document.getElementById("mstTable").innerHTML = list.length ? table(
+          ["Employee ID", "Employee", "Dept.", "Training", "Pre", "Post", "Practical", "On-site", "Final Status", ""],
+          list.map(r => `<tr>
+        <td>${r.emp.id}</td><td>${r.emp.name}</td><td>${r.emp.department}</td><td>${r.course ? r.course.title : r.tr.title}</td>
+        <td>${r.pre !== null ? r.pre + '%' : '-'}</td><td>${r.post !== null ? r.post + '%' : '-'}</td><td>${r.practical !== null ? r.practical + '%' : '-'}</td>
+        <td>${r.onsite}</td><td><span class="pill ${r.cls}">${r.finalStatus}</span></td>
+        <td><button class="btn-small mst-view" data-emp="${r.emp.id}">View</button></td>
+      </tr>`)
+        ) : `<p class="muted">No records found.</p>`;
+        document.querySelectorAll(".mst-view").forEach(b => b.onclick = () => openEmployeeProfile(b.dataset.emp));
+        window._asmMasterRows = list;
+      };
+      document.getElementById("mstSearch").oninput = draw;
+      document.getElementById("mstDept").onchange = draw;
+      document.getElementById("mstStatus").onchange = draw;
+      document.getElementById("mstExport").onclick = () => {
+        const list = window._asmMasterRows || [];
+        const csvRows = [["Employee ID", "Employee", "Department", "Training", "Pre", "Post", "Practical", "On-site", "Final Status"]];
+        list.forEach(r => csvRows.push([r.emp.id, r.emp.name, r.emp.department, r.course ? r.course.title : r.tr.title, r.pre ?? '', r.post ?? '', r.practical ?? '', r.onsite, r.finalStatus.replace(/[^\w\s]/g, '').trim()]));
+        const csv = csvRows.map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob); a.download = 'Assessment_Master_Table.csv'; a.click();
+      };
+      draw();
     }
 
     /* ---------- Assessment Engine ---------- */
@@ -7826,11 +8311,11 @@
         cells += `<div class="cal-cell">
       <div class="cal-daynum">${d}</div>
       ${evts.slice(0, 2).map(t => `<div class="cal-evt cal-evt-${t.status.toLowerCase()} tc-row" data-id="${t.id}" title="${t.title} — ${t.venue} — ${t.trainer} (${t.status})">
-  <div class="cal-evt-title">${t.title}</div>
-  <div class="cal-evt-meta">📍 ${t.venue}</div>
-  <div class="cal-evt-meta">🧑‍🏫 ${t.trainer.replace('Trainer: ', '')}</div>
-</div>`).join('')}
-      ${evts.length > 3 ? `<div class="muted" style="font-size:11px;">+${evts.length - 3} more</div>` : ''}
+        <div class="cal-evt-title">${t.title}</div>
+        <div class="cal-evt-meta">📍 ${t.venue}</div>
+        <div class="cal-evt-meta">🧑‍🏫 ${t.trainer.replace('Trainer: ', '')}</div>
+      </div>`).join('')}
+      ${evts.length > 2 ? `<div class="muted" style="font-size:11px;">+${evts.length - 2} more</div>` : ''}
     </div>`;
       }
       body.innerHTML = `
@@ -7839,17 +8324,26 @@
       <b>${first.toLocaleString('en-US', { month: 'long', year: 'numeric' })}</b>
       <button class="btn-small" id="tcNextM">›</button>
     </div>
+    <div style="display:flex; gap:14px; flex-wrap:wrap; margin-bottom:10px; font-size:12px;">
+      <span><span class="cal-legend-dot" style="background:var(--green);"></span> Completed</span>
+      <span><span class="cal-legend-dot" style="background:var(--purple);"></span> Upcoming</span>
+      <span><span class="cal-legend-dot" style="background:var(--blue);"></span> Planned</span>
+    </div>
     <div class="cal-grid-head">${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(d => `<div>${d}</div>`).join('')}</div>
     <div class="cal-grid">${cells}</div>
     <style>
       .cal-grid-head{display:grid; grid-template-columns:repeat(7,1fr); gap:6px; font-size:12px; font-weight:700; color:var(--muted,#64748B); margin-bottom:4px;}
       .cal-grid{display:grid; grid-template-columns:repeat(7,1fr); gap:6px;}
-      .cal-cell{min-height:80px; border:1px solid var(--border,#E2E8F0); border-radius:8px; padding:6px; font-size:12px;}
+      .cal-cell{min-height:96px; border:1px solid var(--border,#E2E8F0); border-radius:8px; padding:6px; font-size:12px;}
       .cal-cell.empty{border:none;}
       .cal-daynum{font-weight:700; margin-bottom:4px;}
+      .cal-legend-dot{display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:4px;}
+      .cal-evt{border-radius:5px; padding:3px 6px; margin-bottom:3px; cursor:pointer; overflow:hidden;}
+      .cal-evt-title{font-size:11px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+      .cal-evt-meta{font-size:10px; opacity:0.9; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
       .cal-evt-completed{background:var(--green-bg); color:var(--green);}
-.cal-evt-upcoming{background:var(--purple-bg); color:var(--purple);}
-.cal-evt-planned{background:var(--blue-bg); color:var(--blue);}; border-radius:5px; padding:2px 5px; margin-bottom:3px; cursor:pointer; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+      .cal-evt-upcoming{background:var(--purple-bg); color:var(--purple);}
+      .cal-evt-planned{background:var(--blue-bg); color:var(--blue);}
     </style>`;
       document.getElementById("tcPrevM").onclick = () => { const nm = new Date(y, m - 2, 1); App.state.trCalMonth = `${nm.getFullYear()}-${pad(nm.getMonth() + 1, 2)}`; renderTRCalendar(document.getElementById("trSubMount")); };
       document.getElementById("tcNextM").onclick = () => { const nm = new Date(y, m, 1); App.state.trCalMonth = `${nm.getFullYear()}-${pad(nm.getMonth() + 1, 2)}`; renderTRCalendar(document.getElementById("trSubMount")); };
@@ -7860,14 +8354,21 @@
       const dow = base.getDay();
       const monday = addDays(base, -((dow + 6) % 7));
       const days = [...Array(7)].map((_, i) => addDays(monday, i));
-      body.innerHTML = `<div style="display:flex; flex-direction:column; gap:10px;">
+      const statusColor = { Completed: "var(--green)", Upcoming: "var(--purple)", Planned: "var(--blue)" };
+      const statusBg = { Completed: "var(--green-bg)", Upcoming: "var(--purple-bg)", Planned: "var(--blue-bg)" };
+      body.innerHTML = `<div style="display:flex; gap:14px; flex-wrap:wrap; margin-bottom:12px; font-size:12px;">
+      <span><span class="cal-legend-dot" style="display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;background:var(--green);"></span> Completed</span>
+      <span><span class="cal-legend-dot" style="display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;background:var(--purple);"></span> Upcoming</span>
+      <span><span class="cal-legend-dot" style="display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;background:var(--blue);"></span> Planned</span>
+    </div>
+    <div style="display:flex; flex-direction:column; gap:10px;">
     ${days.map(d => {
         const key = fmtDate(d);
         const evts = all.filter(t => t.date === key);
         return `<div style="border:1px solid var(--border,#E2E8F0); border-radius:10px; padding:10px 14px;">
         <b>${d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</b>
-        ${evts.length ? evts.map(t => `<div class="tc-row" data-id="${t.id}" style="cursor:pointer; margin-top:6px; padding:6px 8px; border-radius:6px; background:var(--card-bg,#F8FAFC);">
-            <b>${t.id}</b> — ${t.title} · ${t.department} · ${t.trainer} ${statusPill(t.status)}
+        ${evts.length ? evts.map(t => `<div class="tc-row" data-id="${t.id}" style="cursor:pointer; margin-top:6px; padding:6px 8px; border-radius:6px; border-left:4px solid ${statusColor[t.status] || 'var(--gray)'}; background:${statusBg[t.status] || 'var(--card-bg,#F8FAFC)'};">
+            <b>${t.title}</b> · 📍 ${t.venue} · 🧑‍🏫 ${t.trainer.replace('Trainer: ', '')} · <span style="color:${statusColor[t.status] || 'var(--gray)'}; font-weight:700;">${t.status}</span>
           </div>`).join('') : '<div class="muted" style="margin-top:6px;">No training scheduled</div>'}
       </div>`;
       }).join('')}
