@@ -4792,12 +4792,11 @@
 
     function buildDatabase() {
       RNG = mulberry32(20260101);
-      const employees = generateEmployees(112);
-      const schedule = generateSchedule(employees);
-      generateAssessmentHistory(employees, schedule);
+      const employees = []; // no demo employees: real data comes from Excel import / Add Employee
+      const schedule = [];  // no demo trainings
       const admin = { id: "ADMIN001", name: "Admin", department: "HR & Administration", designation: "HR Director", role: "admin", password: "Admin@123", photoInitials: "AD" };
       const trainer = { id: "TRAIN001", name: "Md. Salahuddin", department: "EHS", designation: "Senior Trainer", role: "trainer", password: "Trainer@123", photoInitials: "MS", assignedDept: ["Production", "EHS", "Quality"] };
-      const trainerEvaluations = generateTrainerEvaluations(employees, schedule);
+      const trainerEvaluations = [];
       return { employees, schedule, admin, trainer, courses: COURSES.map(c => ({ ...c, materials: [] })), venues: [...TRAINING_VENUES], trainers: [...TRAINER_POOL], trainerEvaluations, trainingEvidence: [], generatedAt: new Date().toISOString() };
     }
 
@@ -4950,6 +4949,7 @@
       /* (status is stored, not derived live, so a session saved earlier as "Upcoming"/"Planned"
          must be re-checked every load or it stays stuck even after its date has passed) */
       (db.schedule || []).forEach(s => {
+        if (s.completedBy) { if (s.status !== "Completed") { s.status = "Completed"; migrated = true; } return; }
         const d = new Date(s.date);
         const newStatus = d < appToday() ? "Completed" : (d < addDays(appToday(), 14) ? "Upcoming" : "Planned");
         if (s.status !== newStatus) { s.status = newStatus; migrated = true; }
@@ -4996,8 +4996,31 @@
 
       /* ---- Learning module: Trainer Evaluations & Training Evidence ---- */
       db.trainingEvidence = db.trainingEvidence || [];
-      if (!Array.isArray(db.trainerEvaluations) || !db.trainerEvaluations.length) {
-        db.trainerEvaluations = generateTrainerEvaluations(db.employees || [], db.schedule || []);
+      if (!Array.isArray(db.trainerEvaluations)) { db.trainerEvaluations = []; migrated = true; }
+
+      /* ---- One-time reset: remove randomly generated skill levels; keep only validated ones ---- */
+      if (!db.actualSkillsV1) {
+        (db.employees || []).forEach(emp => {
+          (emp.skills || []).forEach(sk => {
+            const jr = (db.jobRoles || []).find(r => r.department === emp.department && r.skill === sk.skill);
+            if (jr) sk.required = jr.requiredLevel;
+            const validated = (emp.competencyValidations || []).some(v => v.skill === sk.skill && v.status === "Validated");
+            sk.current = validated ? sk.required : 0;
+            sk.gap = Math.max(0, sk.required - sk.current);
+          });
+        });
+        db.actualSkillsV1 = true;
+        migrated = true;
+      }
+
+      /* ---- One-time cleanup: remove auto-generated demo trainer evaluations ---- */
+      if (!db.noDemoV1) {
+        const DEMO_COMMENTS = ["Very helpful session.", "Clear explanation with real examples.", "Could include more hands-on practice.", "Well organized and on time.", "Good pace, easy to follow.", "Trainer answered all questions well."];
+        const sids = new Set((db.schedule || []).map(s => s.id));
+        const eids = new Set((db.employees || []).map(e => e.id));
+        db.trainerEvaluations = (db.trainerEvaluations || []).filter(ev =>
+          sids.has(ev.trainingId) && eids.has(ev.empId) && !DEMO_COMMENTS.includes(ev.comments));
+        db.noDemoV1 = true;
         migrated = true;
       }
 
@@ -5928,7 +5951,7 @@
       return list.map(d => {
         const emps = db.employees.filter(e => e.department === d);
         const total = emps.length;
-        const finished = emps.filter(e => e.trainingRecords.length === 0 || e.trainingRecords.every(r => r.status === "Completed")).length;
+        const finished = emps.filter(e => e.trainingRecords.length > 0 && e.trainingRecords.every(r => r.status === "Completed")).length;
         const trainingNeeded = allSkillGapRows(db, d).length;
         const completionPct = pct(finished, total);
         let status, statusClass;
@@ -8730,7 +8753,7 @@
         emp.attendance = emp.attendance || [];
         emp.attendance.push({ trainingId: id, title: rec.title, date: rec.date, status: "Scheduled" });
         emp.trainingRecords = emp.trainingRecords || [];
-        emp.trainingRecords.push({ trainingId: id, title: rec.title, courseId: rec.courseId, department: rec.department, date: rec.date, status: rec.status, completedDate: null });
+        emp.trainingRecords.push({ trainingId: id, title: rec.title, courseId: rec.courseId, department: rec.department, date: rec.date, status: rec.status === "Completed" ? "Pending" : rec.status, completedDate: null });
       });
       saveDB(db);
       return rec;
@@ -8742,7 +8765,7 @@
       Object.assign(rec, patch);
       db.employees.forEach(emp => {
         (emp.attendance || []).forEach(a => { if (a.trainingId === id) { a.title = rec.title; a.date = rec.date; } });
-        (emp.trainingRecords || []).forEach(r => { if (r.trainingId === id) { r.title = rec.title; r.date = rec.date; if (r.status !== "Completed" && rec.status) r.status = rec.status; } });
+        (emp.trainingRecords || []).forEach(r => { if (r.trainingId === id) { r.title = rec.title; r.date = rec.date; if (r.status !== "Completed" && rec.status && rec.status !== "Completed") r.status = rec.status; } });
       });
       saveDB(db);
     }
@@ -9512,6 +9535,30 @@
       else if (App.state.trCalView === "month") renderTCMonth(body, all);
       else renderTCWeek(body, all);
     }
+    function adminCompleteTraining(sessionId) {
+      const db = App.db;
+      const s = trainingById(sessionId);
+      if (!s) return;
+      if (!(s.participants || []).length) { toast("No participants in this training."); return; }
+      const course = courseById(s.courseId);
+      const today = fmtDate(appToday());
+      s.status = "Completed"; s.completedBy = "Admin"; s.completedOn = today;
+      s.participants.forEach(empId => {
+        const emp = empById(empId);
+        if (!emp) return;
+        emp.trainingRecords = emp.trainingRecords || [];
+        let rec = emp.trainingRecords.find(r => r.trainingId === s.id);
+        if (!rec) {
+          rec = { trainingId: s.id, title: s.title, courseId: s.courseId, department: s.department, date: s.date, status: "Completed", completedDate: today };
+          emp.trainingRecords.push(rec);
+        }
+        rec.status = "Completed"; rec.completedDate = today; rec.completedBy = "Admin";
+        const sk = (emp.skills || []).find(x => course && x.skill === course.title);
+        if (sk) { sk.current = sk.required; sk.gap = 0; }
+      });
+      saveDB(db);
+      toast(`"${s.title}" marked completed for ${s.participants.length} participant(s).`);
+    }
     function openTrainingDetails(tr) {
       const rows = trainingParticipantRows(tr);
       const present = rows.filter(r => r.att && r.att.status === "Present").length;
@@ -9532,12 +9579,21 @@
       <div><b>Pass Mark</b><div>70%</div></div>
       <div><b>Status</b><div>${statusPill(tr.status)}</div></div>
       <div><b>Present</b><div>${present}/${rows.length}</div></div>
+      ${tr.completedBy ? `<div><b>Completed By</b><div>${tr.completedBy} (${tr.completedOn})</div></div>` : ''}
       ${avgRating ? `<div><b>Trainer Rating</b><div>${starRating(avgRating)} (${avgRating.toFixed(1)}/5)</div></div>` : ''}
     </div>
     ${course ? `<p class="muted">Course: ${course.title} · ${course.topic} · ${course.duration}</p>` : ''}
     <button class="btn-primary" id="tdOpenDocsBtn">Open in Training Documents →</button>
+    ${(App.session && App.session.role === "admin" && !tr.completedBy) ? `<button class="btn-outline" id="tdAdminCompleteBtn" style="margin-top:10px;">✔ Mark Completed (Admin)</button>` : ''}
   `, {
         onOpen: (box) => {
+          const cb = box.querySelector("#tdAdminCompleteBtn");
+          if (cb) cb.onclick = () => {
+            if (!confirm(`Mark "${tr.title}" as completed without conducting the training?\nAll ${tr.participants.length} participant(s) will show Completed.`)) return;
+            adminCompleteTraining(tr.id);
+            closeModal();
+            route();
+          };
           box.querySelector("#tdOpenDocsBtn").onclick = () => { App.state.tdTrainingId = tr.id; closeModal(); navigate("#/trainingdocuments"); };
         }
       });
@@ -9730,7 +9786,7 @@
     /* ---- 3.3 Training History (Employee Training Passport) ---- */
     function renderTRHistory(el) {
       const db = App.db;
-      App.state.trHistoryEmp = App.state.trHistoryEmp || db.employees[0].id;
+      App.state.trHistoryEmp = App.state.trHistoryEmp || (db.employees[0] ? db.employees[0].id : "");
       el.innerHTML = `
     <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px;">
       <input id="thSearch" list="thEmpList" placeholder="Search employee by name or ID…" style="flex:1; min-width:220px;"/>
@@ -10368,11 +10424,11 @@
 
     function generateSkillsForDept(department) {
       const skillsList = SKILLS_BY_DEPT[department] || [];
+      const jobRoles = (App.db && App.db.jobRoles) || [];
       return skillsList.map(sk => {
-        const required = randInt(2, 4);
-        let current = Math.max(0, required - randInt(-1, 3));
-        current = Math.min(5, current);
-        return { skill: sk, required, current, gap: Math.max(0, required - current) };
+        const jr = jobRoles.find(r => r.department === department && r.skill === sk);
+        const required = jr ? jr.requiredLevel : 2;
+        return { skill: sk, required, current: 0, gap: required };
       });
     }
 
@@ -10739,10 +10795,10 @@
             emp.trainingRecords = emp.trainingRecords || [];
             let tr = emp.trainingRecords.find(r => r.trainingId === session.id);
             if (!tr) {
-              tr = { trainingId: session.id, title: session.title, courseId: session.courseId, department: session.department, date: session.date, status: status, completedDate: null };
+              tr = { trainingId: session.id, title: session.title, courseId: session.courseId, department: session.department, date: session.date, status: status === "Completed" ? "Pending" : status, completedDate: null };
               emp.trainingRecords.push(tr);
             } else {
-              tr.date = session.date; tr.status = status;
+              tr.date = session.date; if (tr.status !== "Completed") tr.status = (status === "Completed" ? "Pending" : status);
             }
 
             emp.notifications = emp.notifications || [];
@@ -10815,10 +10871,10 @@
               emp.trainingRecords = emp.trainingRecords || [];
               let tr = emp.trainingRecords.find(r => r.trainingId === session.id);
               if (!tr) {
-                tr = { trainingId: session.id, title: session.title, courseId: session.courseId, department: session.department, date: session.date, status: status, completedDate: null };
+                tr = { trainingId: session.id, title: session.title, courseId: session.courseId, department: session.department, date: session.date, status: status === "Completed" ? "Pending" : status, completedDate: null };
                 emp.trainingRecords.push(tr);
               } else {
-                tr.date = session.date; tr.status = status;
+                tr.date = session.date; if (tr.status !== "Completed") tr.status = (status === "Completed" ? "Pending" : status);
               }
 
               emp.notifications = emp.notifications || [];
