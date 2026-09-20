@@ -3589,6 +3589,81 @@
       transform: translateY(0);
     }
 
+    /* ---------- Mobile polish ---------- */
+    @media(max-width:600px) {
+      .page-head {
+        align-items: stretch;
+      }
+
+      .page-head h1 {
+        font-size: 20px;
+      }
+
+      .mp-head-actions,
+      .jr-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        width: 100%;
+      }
+
+      .mp-head-actions .select,
+      .mp-head-actions .input-inline,
+      .jr-toolbar .select,
+      .jr-toolbar .input-inline {
+        flex: 1 1 140px;
+        min-width: 0;
+      }
+
+      .jr-toolbar .btn-outline,
+      .page-head .btn-primary {
+        flex: 1 1 auto;
+      }
+
+      .modal {
+        max-height: 92vh;
+        border-radius: 16px;
+      }
+
+      .form-grid {
+        grid-template-columns: 1fr !important;
+      }
+
+      input,
+      select,
+      textarea {
+        font-size: 16px;
+      }
+
+      /* freeze বন্ধ: phone-এ পুরো page স্বাভাবিকভাবে scroll হবে */
+      #matrixTable .table-wrap,
+      #jobRoleTable .table-wrap {
+        max-height: none !important;
+      }
+    }
+
+    /* ---------- Mobile sidebar overlay ---------- */
+    .sidebar-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, .45);
+      backdrop-filter: blur(2px);
+      z-index: 49;
+    }
+
+    @media(max-width:980px) {
+      .sidebar {
+        height: 100vh;
+        height: 100dvh;
+        overflow-y: auto;
+      }
+
+      .sidebar.open+.sidebar-overlay {
+        display: block;
+      }
+    }
+
     /* ---------- Responsive ---------- */
     @media(max-width:980px) {
       .sidebar {
@@ -5165,6 +5240,7 @@
         <button class="btn-logout" id="logoutBtn">⏻ ${t('logout')}</button>
       </div>
     </aside>
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
     <div class="main">
       <header class="topheader">
         <button class="hamburger" id="hamburger">☰</button>
@@ -5192,7 +5268,11 @@
       document.getElementById("logoutBtn").onclick = () => { clearSession(); App.session = null; showLogin(); };
       document.getElementById("langBtn2").onclick = () => { toggleLang(); showApp(); route(); };
       document.getElementById("themeBtn2").onclick = () => { toggleTheme(); showApp(); route(); };
-      document.getElementById("hamburger").onclick = () => document.getElementById("sidebar").classList.toggle("open");
+      const sideEl = document.getElementById("sidebar");
+      const closeSide = () => sideEl.classList.remove("open");
+      document.getElementById("hamburger").onclick = () => sideEl.classList.toggle("open");
+      document.getElementById("sidebarOverlay").onclick = closeSide;
+      document.querySelectorAll("#navList a.navlink").forEach(a => a.addEventListener("click", closeSide));
       document.getElementById("notifBtn").onclick = () => navigate("#/notifications");
       document.getElementById("modalBackdrop").onclick = (e) => { if (e.target.id === 'modalBackdrop') closeModal(); };
       document.getElementById("globalSearch").oninput = onGlobalSearch;
@@ -5274,6 +5354,8 @@
 
     /* ---------- Router ---------- */
     function route() {
+      const sbEl = document.getElementById("sidebar");
+      if (sbEl) sbEl.classList.remove("open");
       if (App.videoTimer) { clearInterval(App.videoTimer); App.videoTimer = null; }
       highlightNav();
       const hash = location.hash || "#/overview";
