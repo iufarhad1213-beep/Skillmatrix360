@@ -4627,14 +4627,103 @@
       return db;
     }
 
-    let _cloudSyncTimer = null;
+    const CLIENT_ID = "c" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    let _cloudSyncTimer = null, _cloudDb = null, _cloudDirty = false, _cloudBusy = false;
+    let _lastCloudTs = null, _cloudLoadFailed = false, _cloudChannel = null;
+
+    function setSyncStatus(state, detail) {
+      let el = document.getElementById("syncPill");
+      if (!el) {
+        el = document.createElement("div");
+        el.id = "syncPill";
+        el.style.cssText = "position:fixed;right:14px;bottom:14px;z-index:99999;padding:6px 12px;border-radius:999px;font:600 12px Inter,sans-serif;box-shadow:0 4px 14px rgba(15,23,42,.15);background:#fff;border:1px solid rgba(15,23,42,.1);";
+        document.body.appendChild(el);
+      }
+      const map = {
+        ok: ["☁ Synced", "#15803D"],
+        pending: ["⟳ Saving…", "#B45309"],
+        saving: ["⟳ Saving…", "#B45309"],
+        error: ["⚠ Sync failed — retrying", "#B91C1C"],
+        local: ["Local only", "#64748B"]
+      };
+      const [txt, color] = map[state] || map.local;
+      el.textContent = txt; el.style.color = color; el.title = detail || "";
+    }
+
     function pushToCloud(db) {
       if (!sb) return;
+      _cloudDb = db; _cloudDirty = true;
+      setSyncStatus("pending");
       clearTimeout(_cloudSyncTimer);
-      _cloudSyncTimer = setTimeout(() => {
-        sb.from('app_state').upsert({ id: CLOUD_ROW_ID, data: db, updated_at: new Date().toISOString() })
-          .then(({ error }) => { if (error) console.warn('[SkillMatrix360] cloud sync failed:', error.message); });
-      }, 700);
+      _cloudSyncTimer = setTimeout(flushToCloud, 500);
+    }
+
+    async function flushToCloud() {
+      if (!sb || !_cloudDirty) return;
+      if (_cloudBusy) { _cloudSyncTimer = setTimeout(flushToCloud, 500); return; }
+      _cloudBusy = true; _cloudDirty = false;
+      setSyncStatus("saving");
+      try {
+        if (_cloudLoadFailed) {
+          const { data: chk, error: chkErr } = await sb.from('app_state').select('updated_at').eq('id', CLOUD_ROW_ID).maybeSingle();
+          if (chkErr) throw chkErr;
+          if (chk) { setSyncStatus("error", "Cloud already has data — reload the page to sync"); return; }
+          _cloudLoadFailed = false;
+        }
+        const ts = new Date().toISOString();
+        const { error } = await sb.from('app_state').upsert({ id: CLOUD_ROW_ID, data: _cloudDb, updated_at: ts, updated_by: CLIENT_ID });
+        if (error) throw error;
+        _lastCloudTs = ts;
+        if (!_cloudDirty) setSyncStatus("ok");
+      } catch (e) {
+        _cloudDirty = true;
+        setSyncStatus("error", e.message || String(e));
+        clearTimeout(_cloudSyncTimer);
+        _cloudSyncTimer = setTimeout(flushToCloud, 8000);
+      } finally {
+        _cloudBusy = false;
+      }
+    }
+
+    function cloudUiBusy() {
+      const bd = document.getElementById("modalBackdrop");
+      const ae = document.activeElement;
+      return (bd && bd.classList.contains("show")) ||
+        (location.hash || "").includes("assessmentrun") ||
+        !!(ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName) && ae.closest("#content"));
+    }
+
+    async function pullFromCloudIfNewer() {
+      if (!sb || !App.db || _cloudDirty || _cloudBusy) return;
+      try {
+        const { data: meta, error } = await sb.from('app_state').select('updated_at, updated_by').eq('id', CLOUD_ROW_ID).maybeSingle();
+        if (error || !meta) return;
+        if (meta.updated_by === CLIENT_ID) return;
+        if (_lastCloudTs && new Date(meta.updated_at).getTime() <= new Date(_lastCloudTs).getTime()) return;
+        if (cloudUiBusy()) { setTimeout(pullFromCloudIfNewer, 4000); return; }
+        const { data, error: e2 } = await sb.from('app_state').select('data, updated_at').eq('id', CLOUD_ROW_ID).maybeSingle();
+        if (e2 || !data || !data.data) return;
+        if (_cloudDirty || _cloudBusy) return;
+        const { db } = migrateDB(data.data);
+        App.db = db;
+        _lastCloudTs = data.updated_at;
+        localStorage.setItem(DB_KEY, JSON.stringify(db));
+        setSyncStatus("ok");
+        if (App.session && document.getElementById("content")) route();
+        toast("Data updated from cloud");
+      } catch (e) { console.warn('[SkillMatrix360] cloud pull failed:', e); }
+    }
+
+    function startCloudRealtime() {
+      if (!sb) { setSyncStatus("local"); return; }
+      if (_cloudChannel) return;
+      _cloudChannel = sb.channel('app_state_sync')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'app_state' }, () => pullFromCloudIfNewer())
+        .subscribe();
+      document.addEventListener("visibilitychange", () => { if (!document.hidden) pullFromCloudIfNewer(); });
+      window.addEventListener("online", () => { flushToCloud(); pullFromCloudIfNewer(); });
+      window.addEventListener("beforeunload", (e) => { if (_cloudDirty || _cloudBusy) { e.preventDefault(); e.returnValue = ""; } });
+      setInterval(pullFromCloudIfNewer, 60000);
     }
 
     function migrateDB(db) {
@@ -4704,14 +4793,21 @@
     async function loadDB() {
       if (sb) {
         try {
-          const { data, error } = await sb.from('app_state').select('data').eq('id', CLOUD_ROW_ID).maybeSingle();
+          const { data, error } = await sb.from('app_state').select('data, updated_at').eq('id', CLOUD_ROW_ID).maybeSingle();
           if (!error && data && data.data) {
-            const { db } = migrateDB(data.data);
+            const { db, migrated } = migrateDB(data.data);
+            _lastCloudTs = data.updated_at;
             localStorage.setItem(DB_KEY, JSON.stringify(db));
-            pushToCloud(db);
+            if (migrated) pushToCloud(db);
+            setSyncStatus("ok");
             return db;
           }
-        } catch (e) { console.warn('[SkillMatrix360] Supabase unreachable, falling back to local cache:', e); }
+          if (error) { _cloudLoadFailed = true; setSyncStatus("error", error.message); }
+        } catch (e) {
+          _cloudLoadFailed = true;
+          setSyncStatus("error", e.message || String(e));
+          console.warn('[SkillMatrix360] Supabase unreachable, falling back to local cache:', e);
+        }
       }
       const raw = localStorage.getItem(DB_KEY);
       if (raw) {
@@ -4719,14 +4815,14 @@
           const parsed = JSON.parse(raw);
           const { db } = migrateDB(parsed);
           localStorage.setItem(DB_KEY, JSON.stringify(db));
-          pushToCloud(db); // seed the cloud if it was empty / unreachable a moment ago
+          if (!_cloudLoadFailed) pushToCloud(db); // seed cloud only when cloud row is truly empty
           return db;
         } catch (e) { /* fallthrough */ }
       }
       const db = buildDatabase();
       assignLoginIds(db);
       localStorage.setItem(DB_KEY, JSON.stringify(db));
-      pushToCloud(db);
+      if (!_cloudLoadFailed) pushToCloud(db);
       return db;
     }
     function saveDB(db) {
@@ -4871,6 +4967,7 @@
       const root = document.getElementById("root");
       if (root) { root.innerHTML = `<div style="min-height:100vh; display:flex; align-items:center; justify-content:center; font-family:'Inter',sans-serif; color:#64748B; gap:10px;"><i class="fa-solid fa-spinner fa-spin"></i> Loading SkillMatrix360…</div>`; }
       App.db = await loadDB();
+      startCloudRealtime();
       runTrainingReminders(App.db);
       App.session = loadSession();
       window.addEventListener("hashchange", route);
