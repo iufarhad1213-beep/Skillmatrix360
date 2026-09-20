@@ -3589,6 +3589,146 @@
       transform: translateY(0);
     }
 
+    /* ---------- Assessment: smart record card ---------- */
+    .asm-split {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 18px;
+    }
+
+    .asm-split.has-card {
+      grid-template-columns: 340px minmax(0, 1fr);
+      align-items: start;
+    }
+
+    .asm-card {
+      position: sticky;
+      top: 84px;
+      max-height: calc(100vh - 100px);
+      overflow-y: auto;
+      background: var(--card-solid);
+      border: 1px solid var(--border, #E2E8F0);
+      border-radius: 18px;
+      padding: 18px;
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .asm-card-title {
+      font-weight: 800;
+      font-size: 15px;
+    }
+
+    .asm-card label {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted, #64748B);
+    }
+
+    .asm-card .select,
+    .asm-card .btn-primary {
+      width: 100%;
+    }
+
+    .asm-empty {
+      text-align: center;
+      padding: 18px 10px;
+      border: 1px dashed var(--border, #CBD5E1);
+      border-radius: 14px;
+      font-size: 12.5px;
+      color: var(--muted, #64748B);
+    }
+
+    .asm-profile {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      padding: 14px 10px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, rgba(158, 27, 50, .10), rgba(158, 27, 50, .02));
+    }
+
+    .asm-avatar {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #9E1B32, #C1263F);
+      color: #fff;
+      font-weight: 800;
+      font-size: 24px;
+      border: 3px solid #fff;
+      box-shadow: 0 6px 16px rgba(158, 27, 50, .3);
+    }
+
+    .asm-avatar img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .asm-pname {
+      font-weight: 800;
+      font-size: 15px;
+      text-align: center;
+    }
+
+    .asm-pid {
+      font-size: 11.5px;
+      font-weight: 700;
+      padding: 2px 10px;
+      border-radius: 999px;
+      background: rgba(158, 27, 50, .12);
+      color: #9E1B32;
+    }
+
+    .asm-rows {
+      display: flex;
+      flex-direction: column;
+      margin-top: 4px;
+    }
+
+    .asm-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 8px 2px;
+      border-bottom: 1px dashed var(--border, #E2E8F0);
+      font-size: 12.5px;
+    }
+
+    .asm-row:last-child {
+      border-bottom: none;
+    }
+
+    .asm-row span {
+      color: var(--muted, #64748B);
+    }
+
+    .asm-row b {
+      text-align: right;
+    }
+
+    @media (max-width: 900px) {
+      .asm-split.has-card {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .asm-card {
+        position: static;
+        max-height: none;
+      }
+    }
+
     /* ---------- Mobile polish ---------- */
     @media(max-width:600px) {
       .page-head {
@@ -7929,51 +8069,81 @@
       );
     }
 
+    function asmAvatar(emp) {
+      if (emp.photoUrl) return `<img src="${emp.photoUrl}" alt="${emp.name}"/>`;
+      const ini = emp.photoInitials || (emp.name || "?").split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
+      return `<span>${ini}</span>`;
+    }
+    function asmCardBody(emp, tr, extraRowsHtml) {
+      if (!emp) return `<div class="asm-empty">Select an employee to begin</div>`;
+      const session = tr ? trainingById(tr.trainingId) : null;
+      const row = (k, v) => `<div class="asm-row"><span>${k}</span><b>${v}</b></div>`;
+      return `
+        <div class="asm-profile">
+          <div class="asm-avatar">${asmAvatar(emp)}</div>
+          <div class="asm-pname">${emp.name}</div>
+          <div class="asm-pid">${emp.id}</div>
+        </div>
+        <div class="asm-rows">
+          ${row("Department", emp.department)}
+          ${row("Designation", emp.designation || "-")}
+          ${tr ? row("Training Name", tr.title) + row("Trainer", session ? String(session.trainer).replace(/^Trainer:\s*/i, "") : "-") + row("Training Date", tr.date) + (extraRowsHtml || "") : ""}
+        </div>`;
+    }
+    function asmTrainingOptions(rows) {
+      const names = [...new Set(rows.map(r => r.course ? r.course.title : r.tr.title))].sort();
+      return `<option value="All">All Trainings</option>` + names.map(n => `<option>${n}</option>`).join("");
+    }
+
     /* ---- 📝 Pre Assessment ---- */
     function renderASMPre(el) {
       const isAdmin = App.session.role === "admin", scope = asmScopeEmployees();
       el.innerHTML = `
+    <div class="asm-split ${isAdmin ? 'has-card' : ''}">
     ${isAdmin ? `
-    <div style="margin-bottom:16px; padding:14px; border:1px solid var(--border,#E2E8F0); border-radius:10px;">
-      <b>Record Pre-Assessment</b>
-      <div class="form-grid" style="margin-top:10px;">
-        <label>Employee<select id="preEmp" class="select"><option value="">Select Employee</option>${App.db.employees.map(e => `<option value="${e.id}">${e.name} (${e.id})</option>`).join('')}</select></label>
-        <label>Training<select id="preTr" class="select"><option value="">Select Training</option></select></label>
-      </div>
-      <div id="preAutoFill" class="muted" style="margin-top:8px;"></div>
-      <div class="form-grid" style="margin-top:10px;">
-        <label>Score (%)<input id="preScoreInput" type="number" min="0" max="100" class="select" placeholder="e.g. 55" disabled/></label>
-      </div>
-      <button class="btn-primary" id="preSubmitBtn" style="margin-top:10px;" disabled>Save Pre-Assessment</button>
+    <div class="asm-card">
+      <div class="asm-card-title">📝 Record Pre-Assessment</div>
+      <label>Employee<select id="preEmp" class="select"><option value="">Select Employee</option>${App.db.employees.map(e => `<option value="${e.id}">${e.name} (${e.id})</option>`).join('')}</select></label>
+      <label>Training<select id="preTr" class="select"><option value="">Select Training</option></select></label>
+      <div id="preAutoFill">${asmCardBody(null, null)}</div>
+      <label>Score (%)<input id="preScoreInput" type="number" min="0" max="100" class="select" placeholder="e.g. 55" disabled/></label>
+      <button class="btn-primary" id="preSubmitBtn" disabled>Save Pre-Assessment</button>
     </div>` : ''}
-    <div id="preTableWrap"></div>`;
+    <div id="preTableWrap" style="min-width:0;"></div>
+    </div>`;
       if (isAdmin) {
         const empSel = document.getElementById("preEmp"), trSel = document.getElementById("preTr");
         const scoreInput = document.getElementById("preScoreInput"), submitBtn = document.getElementById("preSubmitBtn");
         empSel.onchange = () => {
           const emp = empById(empSel.value);
           trSel.innerHTML = `<option value="">Select Training</option>` + (emp ? (emp.trainingRecords || []).map(tr => `<option value="${tr.courseId}">${tr.title}</option>`).join('') : '');
-          document.getElementById("preAutoFill").innerHTML = ''; scoreInput.disabled = true; submitBtn.disabled = true;
+          document.getElementById("preAutoFill").innerHTML = asmCardBody(emp, null); scoreInput.disabled = true; submitBtn.disabled = true;
+          scoreInput.value = ""; submitBtn.textContent = "Save Pre-Assessment";
         };
         trSel.onchange = () => {
           const emp = empById(empSel.value);
           const tr = emp && (emp.trainingRecords || []).find(r => r.courseId === trSel.value);
-          if (!emp || !tr) { document.getElementById("preAutoFill").innerHTML = ''; scoreInput.disabled = true; submitBtn.disabled = true; return; }
-          const session = trainingById(tr.trainingId);
-          document.getElementById("preAutoFill").innerHTML = `<div class="form-grid">
-        <div><b>Employee Name</b><div>${emp.name}</div></div><div><b>Employee ID</b><div>${emp.id}</div></div>
-        <div><b>Department</b><div>${emp.department}</div></div><div><b>Designation</b><div>${emp.designation || '-'}</div></div>
-        <div><b>Training Name</b><div>${tr.title}</div></div><div><b>Trainer</b><div>${session ? session.trainer : '-'}</div></div>
-        <div><b>Training Date</b><div>${tr.date}</div></div></div>`;
+          if (!emp || !tr) { document.getElementById("preAutoFill").innerHTML = asmCardBody(emp, null); scoreInput.disabled = true; submitBtn.disabled = true; scoreInput.value = ""; submitBtn.textContent = "Save Pre-Assessment"; return; }
+          document.getElementById("preAutoFill").innerHTML = asmCardBody(emp, tr);
+          const existing = bestAttempt(emp, tr.courseId, "pre");
+          scoreInput.value = existing ? existing.score : "";
+          submitBtn.textContent = existing ? "Update Pre-Assessment" : "Save Pre-Assessment";
           scoreInput.disabled = false; submitBtn.disabled = false;
         };
         submitBtn.onclick = () => {
           const emp = empById(empSel.value), courseId = trSel.value, score = parseInt(scoreInput.value, 10);
           if (!emp || !courseId || isNaN(score) || score < 0 || score > 100) { toast("Select employee, training and enter a valid score."); return; }
           emp.attempts[courseId] = emp.attempts[courseId] || [];
-          emp.attempts[courseId].push({ date: fmtDate(appToday()), type: "pre", score, passed: score >= 70, detail: [], writtenAnswers: [] });
+          const existing = bestAttempt(emp, courseId, "pre");
+          if (existing) {
+            if (existing.score === score) { toast("No change: score is already " + score + "%."); return; }
+            existing.score = score;
+            existing.passed = score >= 70;
+          } else {
+            emp.attempts[courseId].push({ date: fmtDate(appToday()), type: "pre", score, passed: score >= 70, detail: [], writtenAnswers: [] });
+          }
           saveDB(App.db);
-          toast("Pre-Assessment recorded.");
+          toast(existing ? "Pre-Assessment updated." : "Pre-Assessment recorded.");
           renderASMPre(el);
         };
       }
@@ -7982,6 +8152,8 @@
     <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
       <input id="preSearch" placeholder="Search employee / training…" style="flex:1; min-width:180px;"/>
       ${isAdmin ? `<select id="preDept" class="select">${deptOptionsWithAll("All")}</select>` : ''}
+      <select id="preTrain" class="select">${asmTrainingOptions(preAssessmentRows(scope))}</select>
+      <select id="preTrain" class="select">${asmTrainingOptions(preAssessmentRows(scope))}</select>
       <select id="preStatus" class="select"><option value="All">All Status</option><option>Completed</option><option>Pending</option></select>
     </div>
     <div id="preTable"></div>`;
@@ -7989,7 +8161,9 @@
         const q = (document.getElementById("preSearch").value || '').trim().toLowerCase();
         const dept = isAdmin ? document.getElementById("preDept").value : "All";
         const status = document.getElementById("preStatus").value;
+        const train = document.getElementById("preTrain").value;
         let rows = preAssessmentRows(scope).filter(r => (dept === "All" || r.emp.department === dept) && (status === "All" || r.status === status) &&
+          (train === "All" || (r.course ? r.course.title : r.tr.title) === train) &&
           (!q || r.emp.name.toLowerCase().includes(q) || r.emp.id.toLowerCase().includes(q) || (r.course && r.course.title.toLowerCase().includes(q))));
         rows.sort((a, b) => new Date(b.date) - new Date(a.date));
         document.getElementById("preTable").innerHTML = rows.length ? table(
@@ -8004,6 +8178,7 @@
       document.getElementById("preSearch").oninput = draw;
       if (isAdmin) document.getElementById("preDept").onchange = draw;
       document.getElementById("preStatus").onchange = draw;
+      document.getElementById("preTrain").onchange = draw;
       draw();
     }
 
@@ -8011,48 +8186,55 @@
     function renderASMPost(el) {
       const isAdmin = App.session.role === "admin", scope = asmScopeEmployees();
       el.innerHTML = `
+    <div class="asm-split ${isAdmin ? 'has-card' : ''}">
     ${isAdmin ? `
-    <div style="margin-bottom:16px; padding:14px; border:1px solid var(--border,#E2E8F0); border-radius:10px;">
-      <b>Record Post-Assessment</b>
-      <div class="form-grid" style="margin-top:10px;">
-        <label>Employee<select id="postEmp" class="select"><option value="">Select Employee</option>${App.db.employees.map(e => `<option value="${e.id}">${e.name} (${e.id})</option>`).join('')}</select></label>
-        <label>Training<select id="postTr" class="select"><option value="">Select Training</option></select></label>
-      </div>
-      <div id="postAutoFill" class="muted" style="margin-top:8px;"></div>
-      <div class="form-grid" style="margin-top:10px;">
-        <label>Post Score (%)<input id="postScoreInput" type="number" min="0" max="100" class="select" placeholder="e.g. 85" disabled/></label>
-      </div>
-      <button class="btn-primary" id="postSubmitBtn" style="margin-top:10px;" disabled>Save Post-Assessment</button>
+    <div class="asm-card">
+      <div class="asm-card-title">📊 Record Post-Assessment</div>
+      <label>Employee<select id="postEmp" class="select"><option value="">Select Employee</option>${App.db.employees.map(e => `<option value="${e.id}">${e.name} (${e.id})</option>`).join('')}</select></label>
+      <label>Training<select id="postTr" class="select"><option value="">Select Training</option></select></label>
+      <div id="postAutoFill">${asmCardBody(null, null)}</div>
+      <label>Post Score (%)<input id="postScoreInput" type="number" min="0" max="100" class="select" placeholder="e.g. 85" disabled/></label>
+      <button class="btn-primary" id="postSubmitBtn" disabled>Save Post-Assessment</button>
     </div>` : ''}
-    <div id="postTableWrap"></div>`;
+    <div id="postTableWrap" style="min-width:0;"></div>
+    </div>`;
       if (isAdmin) {
         const empSel = document.getElementById("postEmp"), trSel = document.getElementById("postTr");
         const scoreInput = document.getElementById("postScoreInput"), submitBtn = document.getElementById("postSubmitBtn");
         empSel.onchange = () => {
           const emp = empById(empSel.value);
           trSel.innerHTML = `<option value="">Select Training</option>` + (emp ? (emp.trainingRecords || []).map(tr => `<option value="${tr.courseId}">${tr.title}</option>`).join('') : '');
-          document.getElementById("postAutoFill").innerHTML = ''; scoreInput.disabled = true; submitBtn.disabled = true;
+          document.getElementById("postAutoFill").innerHTML = asmCardBody(emp, null); scoreInput.disabled = true; submitBtn.disabled = true;
+          scoreInput.value = ""; submitBtn.textContent = "Save Post-Assessment";
         };
         trSel.onchange = () => {
           const emp = empById(empSel.value);
           const tr = emp && (emp.trainingRecords || []).find(r => r.courseId === trSel.value);
-          if (!emp || !tr) { document.getElementById("postAutoFill").innerHTML = ''; scoreInput.disabled = true; submitBtn.disabled = true; return; }
+          if (!emp || !tr) { document.getElementById("postAutoFill").innerHTML = asmCardBody(emp, null); scoreInput.disabled = true; submitBtn.disabled = true; scoreInput.value = ""; submitBtn.textContent = "Save Post-Assessment"; return; }
           const preA = bestAttempt(emp, tr.courseId, "pre");
-          document.getElementById("postAutoFill").innerHTML = `<div class="form-grid">
-        <div><b>Employee</b><div>${emp.name} (${emp.id})</div></div><div><b>Department</b><div>${emp.department}</div></div>
-        <div><b>Training</b><div>${tr.title}</div></div>
-        <div><b>Pre Score (auto-fetched)</b><div>${preA ? preA.score + '%' : 'Not taken yet'}</div></div></div>`;
+          document.getElementById("postAutoFill").innerHTML = asmCardBody(emp, tr,
+            `<div class="asm-row"><span>Pre Score (auto-fetched)</span><b>${preA ? preA.score + '%' : 'Not taken yet'}</b></div>`);
+          const existing = bestAttempt(emp, tr.courseId, "post");
+          scoreInput.value = existing ? existing.score : "";
+          submitBtn.textContent = existing ? "Update Post-Assessment" : "Save Post-Assessment";
           scoreInput.disabled = false; submitBtn.disabled = false;
         };
         submitBtn.onclick = () => {
           const emp = empById(empSel.value), courseId = trSel.value, score = parseInt(scoreInput.value, 10);
           if (!emp || !courseId || isNaN(score) || score < 0 || score > 100) { toast("Select employee, training and enter a valid score."); return; }
           emp.attempts[courseId] = emp.attempts[courseId] || [];
-          emp.attempts[courseId].push({ date: fmtDate(appToday()), type: "post", score, passed: score >= 70, detail: [], writtenAnswers: [] });
+          const existing = bestAttempt(emp, courseId, "post");
+          if (existing) {
+            if (existing.score === score) { toast("No change: score is already " + score + "%."); return; }
+            existing.score = score;
+            existing.passed = score >= 70;
+          } else {
+            emp.attempts[courseId].push({ date: fmtDate(appToday()), type: "post", score, passed: score >= 70, detail: [], writtenAnswers: [] });
+          }
           const tr = (emp.trainingRecords || []).find(r => r.courseId === courseId);
-          if (tr && score >= 70) { tr.status = "Completed"; tr.completedDate = fmtDate(appToday()); }
+          if (tr && score >= 70) { tr.status = "Completed"; tr.completedDate = (existing && tr.completedDate) ? tr.completedDate : fmtDate(appToday()); }
           saveDB(App.db);
-          toast("Post-Assessment recorded.");
+          toast(existing ? "Post-Assessment updated." : "Post-Assessment recorded.");
           renderASMPost(el);
         };
       }
@@ -8061,6 +8243,7 @@
     <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
       <input id="postSearch" placeholder="Search employee / training…" style="flex:1; min-width:180px;"/>
       ${isAdmin ? `<select id="postDept" class="select">${deptOptionsWithAll("All")}</select>` : ''}
+      <select id="postTrain" class="select">${asmTrainingOptions(postAssessmentRows(scope))}</select>
       <select id="postStatus" class="select"><option value="All">All Status</option><option>Pass</option><option>Fail</option><option>Pending</option></select>
     </div>
     <div id="postTable"></div>`;
@@ -8068,7 +8251,9 @@
         const q = (document.getElementById("postSearch").value || '').trim().toLowerCase();
         const dept = isAdmin ? document.getElementById("postDept").value : "All";
         const status = document.getElementById("postStatus").value;
+        const train = document.getElementById("postTrain").value;
         let rows = postAssessmentRows(scope).filter(r => (dept === "All" || r.emp.department === dept) && (status === "All" || r.status === status) &&
+          (train === "All" || (r.course ? r.course.title : r.tr.title) === train) &&
           (!q || r.emp.name.toLowerCase().includes(q) || r.emp.id.toLowerCase().includes(q) || (r.course && r.course.title.toLowerCase().includes(q))));
         rows.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
         document.getElementById("postTable").innerHTML = rows.length ? table(
@@ -8085,6 +8270,7 @@
       document.getElementById("postSearch").oninput = draw;
       if (isAdmin) document.getElementById("postDept").onchange = draw;
       document.getElementById("postStatus").onchange = draw;
+      document.getElementById("postTrain").onchange = draw;
       draw();
     }
 
