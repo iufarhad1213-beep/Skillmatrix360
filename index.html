@@ -2143,6 +2143,15 @@
       margin-bottom: 14px;
     }
 
+    /* Employee Management: header fixed, only rows scroll */
+    #adminTable .table-wrap {
+      overflow: auto;
+    }
+
+    #adminTable .data-table th {
+      z-index: 2;
+    }
+
     /* Job Roles: header fixed, only rows scroll */
     #jobRoleTable .table-wrap {
       overflow: auto;
@@ -3621,6 +3630,59 @@
       font-size: 15px;
     }
 
+    /* dropdown list যেন card-এর ভেতরে কাটা না পড়ে */
+    .asm-card {
+      position: static;
+      max-height: none;
+      overflow: visible;
+    }
+
+    /* Searchable select */
+    .ss-wrap {
+      position: relative;
+      width: 100%;
+    }
+
+    .ss-input {
+      width: 100%;
+    }
+
+    .ss-list {
+      display: none;
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: calc(100% + 4px);
+      max-height: 240px;
+      overflow-y: auto;
+      background: var(--card-solid);
+      border: 1px solid var(--border, #E2E8F0);
+      border-radius: 12px;
+      box-shadow: 0 12px 28px rgba(15, 23, 42, .18);
+      z-index: 60;
+      padding: 4px;
+    }
+
+    .ss-item {
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .ss-item.active,
+    .ss-item:hover {
+      background: rgba(158, 27, 50, .10);
+      color: #9E1B32;
+    }
+
+    .ss-none {
+      padding: 10px;
+      font-size: 12.5px;
+      color: var(--muted, #64748B);
+      text-align: center;
+    }
+
     .asm-card label {
       display: flex;
       flex-direction: column;
@@ -3777,7 +3839,8 @@
 
       /* freeze বন্ধ: phone-এ পুরো page স্বাভাবিকভাবে scroll হবে */
       #matrixTable .table-wrap,
-      #jobRoleTable .table-wrap {
+      #jobRoleTable .table-wrap,
+      #adminTable .table-wrap {
         max-height: none !important;
       }
     }
@@ -8092,6 +8155,73 @@
       );
     }
 
+    function makeSearchableSelect(sel, placeholder) {
+      if (!sel || sel.dataset.ss) return;
+      sel.dataset.ss = "1";
+      const wrap = document.createElement("div");
+      wrap.className = "ss-wrap";
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "select ss-input";
+      input.placeholder = placeholder || "Type to search...";
+      input.autocomplete = "off";
+      const list = document.createElement("div");
+      list.className = "ss-list";
+      sel.parentNode.insertBefore(wrap, sel);
+      wrap.appendChild(input); wrap.appendChild(list); wrap.appendChild(sel);
+      sel.style.display = "none";
+
+      const norm = s => String(s).toLowerCase().replace(/\s+/g, "");
+      let items = [], active = -1;
+      const currentText = () => (sel.value && sel.selectedIndex >= 0) ? sel.options[sel.selectedIndex].textContent : "";
+
+      function mark() {
+        [...list.children].forEach((c, i) => c.classList.toggle("active", i === active));
+        const a = list.children[active];
+        if (a && a.scrollIntoView) a.scrollIntoView({ block: "nearest" });
+      }
+      function render(q) {
+        const nq = norm(q || "");
+        items = [...sel.options].filter(o => o.value && (!nq || norm(o.textContent).includes(nq))).slice(0, 80);
+        active = items.length ? 0 : -1;
+        list.innerHTML = items.length
+          ? items.map((o, i) => `<div class="ss-item${i === 0 ? ' active' : ''}" data-i="${i}">${o.textContent}</div>`).join("")
+          : `<div class="ss-none">No match found</div>`;
+        list.style.display = "block";
+      }
+      function close() { list.style.display = "none"; input.value = currentText(); }
+      function pick(i) {
+        const o = items[i];
+        if (!o) return;
+        sel.value = o.value;
+        input.value = o.textContent;
+        list.style.display = "none";
+        sel.dispatchEvent(new Event("change"));
+      }
+
+      input.value = currentText();
+      input.onfocus = () => { input.select(); render(""); };
+      input.oninput = () => {
+        if (!input.value) { sel.value = ""; sel.dispatchEvent(new Event("change")); }
+        render(input.value);
+      };
+      input.onkeydown = (e) => {
+        if (list.style.display !== "block") render(input.value);
+        if (e.key === "ArrowDown") { active = Math.min(items.length - 1, active + 1); mark(); e.preventDefault(); }
+        else if (e.key === "ArrowUp") { active = Math.max(0, active - 1); mark(); e.preventDefault(); }
+        else if (e.key === "Enter") { pick(active); e.preventDefault(); }
+        else if (e.key === "Escape") { close(); input.blur(); }
+      };
+      list.onmousedown = (e) => {
+        const it = e.target.closest(".ss-item");
+        if (it) { e.preventDefault(); pick(+it.dataset.i); }
+      };
+      const outside = (e) => {
+        if (!document.body.contains(wrap)) { document.removeEventListener("mousedown", outside); return; }
+        if (!wrap.contains(e.target)) close();
+      };
+      document.addEventListener("mousedown", outside);
+    }
     function asmAvatar(emp) {
       if (emp.photoUrl) return `<img src="${emp.photoUrl}" alt="${emp.name}"/>`;
       const ini = emp.photoInitials || (emp.name || "?").split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
@@ -8136,6 +8266,7 @@
     </div>`;
       if (isAdmin) {
         const empSel = document.getElementById("preEmp"), trSel = document.getElementById("preTr");
+        makeSearchableSelect(empSel, "Search by name or ID...");
         const scoreInput = document.getElementById("preScoreInput"), submitBtn = document.getElementById("preSubmitBtn");
         empSel.onchange = () => {
           const emp = empById(empSel.value);
@@ -8223,6 +8354,7 @@
     </div>`;
       if (isAdmin) {
         const empSel = document.getElementById("postEmp"), trSel = document.getElementById("postTr");
+        makeSearchableSelect(empSel, "Search by name or ID...");
         const scoreInput = document.getElementById("postScoreInput"), submitBtn = document.getElementById("postSubmitBtn");
         empSel.onchange = () => {
           const emp = empById(empSel.value);
@@ -8649,13 +8781,28 @@
       navigate("#/result/" + course.id + "_" + (user.attempts[course.id].length - 1));
     }
 
+    function certTrainerFor(emp, courseId) {
+      const sched = (App.db && App.db.schedule) || [];
+      // 1) employee-র নিজের training record-এর session (সবচেয়ে সাম্প্রতিক)
+      const recs = (emp.trainingRecords || []).filter(r => r.courseId === courseId);
+      for (let i = recs.length - 1; i >= 0; i--) {
+        const s = sched.find(x => x.id === recs[i].trainingId);
+        if (s && s.trainer) return s.trainer;
+      }
+      // 2) যে session-এ employee participant
+      const own = sched.filter(s => s.courseId === courseId && (s.participants || []).includes(emp.id) && s.trainer).pop();
+      if (own) return own.trainer;
+      // 3) ওই topic-এর যেকোনো session-এর trainer
+      const any = sched.filter(s => s.courseId === courseId && s.trainer).pop();
+      return any ? any.trainer : "";
+    }
     function ensureCertificate(user, course, score) {
       user.certificates = user.certificates || [];
       if (user.certificates.some(c => c.courseId === course.id)) return;
       user.certificates.push({
         id: "CERT-" + user.id + "-" + course.id + "-" + Date.now().toString().slice(-5),
         courseId: course.id, courseTitle: course.title, date: new Date().toISOString().slice(0, 10),
-        score, trainer: pick(TRAINER_POOL)
+        score, trainer: certTrainerFor(user, course.id)
       });
     }
 
@@ -9407,7 +9554,8 @@
       ctx.textAlign = "left";
       ctx.font = "18px Georgia"; ctx.fillStyle = "#0F172A";
       ctx.fillText("_______________________", 150, 700);
-      ctx.fillText(cert.trainer.replace("Trainer: ", ""), 150, 730);
+      const trainerName = String(certTrainerFor(emp, cert.courseId) || cert.trainer || "").replace(/^Trainer:\s*/i, "");
+      ctx.fillText(trainerName, 150, 730);
       ctx.fillText("Trainer", 150, 755);
       ctx.textAlign = "right";
       ctx.fillText("_______________________", 1050, 700);
@@ -10339,6 +10487,24 @@
     }
 
     /* ---------- Admin ---------- */
+    function fitAdminHeight() {
+      const w = document.querySelector("#adminTable .table-wrap");
+      if (!w) return;
+      const top = w.getBoundingClientRect().top + window.scrollY;
+      w.style.maxHeight = Math.max(240, window.innerHeight - top - 30) + "px";
+    }
+    if (!window._adminFitBound) {
+      window._adminFitBound = true;
+      window.addEventListener("resize", fitAdminHeight);
+    }
+    function adminDesigOptions(dept, selected) {
+      const list = [...new Set(App.db.employees
+        .filter(e => dept === "All" || e.department === dept)
+        .map(e => (e.designation || "").trim())
+        .filter(Boolean))].sort();
+      return `<option value="All">All Designations</option>` +
+        list.map(g => `<option value="${g.replace(/"/g, '&quot;')}" ${g === selected ? 'selected' : ''}>${g}</option>`).join("");
+    }
     function renderAdmin(mount) {
       const db = App.db;
       const selectedEmpIds = new Set();
@@ -10352,6 +10518,7 @@
     <div class="filter-row">
       <input id="adminSearch" placeholder="Search by name or ID..." class="input-inline"/>
       <select id="adminDept" class="select">${deptOptions("All")}</select>
+      <select id="adminDesig" class="select">${adminDesigOptions("All", "All")}</select>
     </div>
     <div id="bulkActionBar" style="display:none; align-items:center; gap:12px; background:var(--primary-light); border:1px solid var(--border); border-radius:12px; padding:10px 16px; margin-bottom:14px;">
       <span id="bulkCountLabel" style="font-weight:700; color:var(--primary);"></span>
@@ -10364,11 +10531,15 @@
         const n = selectedEmpIds.size;
         bar.style.display = n > 0 ? "flex" : "none";
         document.getElementById("bulkCountLabel").textContent = `${n} employee${n > 1 ? 's' : ''} selected`;
+        fitAdminHeight();
       }
       function refresh() {
         const q = (document.getElementById("adminSearch").value || "").toLowerCase();
         const d = document.getElementById("adminDept").value;
-        let list = db.employees.filter(e => (!q || e.name.toLowerCase().includes(q) || e.id.toLowerCase().includes(q)) && (d === "All" || e.department === d));
+        const gSel = document.getElementById("adminDesig");
+        gSel.innerHTML = adminDesigOptions(d, gSel.value);
+        const g = gSel.value;
+        let list = db.employees.filter(e => (!q || e.name.toLowerCase().includes(q) || e.id.toLowerCase().includes(q)) && (d === "All" || e.department === d) && (g === "All" || (e.designation || "").trim() === g));
         const visibleIds = list.map(e => e.id);
         [...selectedEmpIds].forEach(id => { if (!visibleIds.includes(id)) selectedEmpIds.delete(id); });
         document.getElementById("adminTable").innerHTML = table(
@@ -10408,7 +10579,12 @@
         updateBulkBar();
       }
       document.getElementById("adminSearch").oninput = refresh;
-      document.getElementById("adminDept").onchange = () => { selectedEmpIds.clear(); refresh(); };
+      document.getElementById("adminDesig").onchange = () => { selectedEmpIds.clear(); refresh(); };
+      document.getElementById("adminDept").onchange = () => {
+        document.getElementById("adminDesig").value = "All";
+        selectedEmpIds.clear();
+        refresh();
+      };
       document.getElementById("addEmpBtn").onclick = () => openEditEmployee(null, refresh);
       document.getElementById("importEmpBtn").onclick = () => openImportExcel(refresh);
       document.getElementById("bulkClearBtn").onclick = () => { selectedEmpIds.clear(); refresh(); };
