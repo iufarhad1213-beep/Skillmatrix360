@@ -2182,6 +2182,74 @@
       z-index: 2;
     }
 
+    /* ---------- Training Documents: print ---------- */
+    #printRoot {
+      display: none;
+    }
+
+    @page {
+      size: A4;
+      margin: 14mm;
+    }
+
+    @media print {
+      body.printing {
+        background: #fff !important;
+      }
+
+      body.printing>*:not(#printRoot) {
+        display: none !important;
+      }
+
+      body.printing #printRoot {
+        display: block;
+        color: #0F172A;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+
+      .pr-head {
+        text-align: center;
+        padding-bottom: 10px;
+        margin-bottom: 18px;
+        border-bottom: 2px solid #9B1B2E;
+      }
+
+      .pr-company {
+        font-size: 24px;
+        font-weight: 800;
+        color: #9B1B2E;
+        letter-spacing: .3px;
+      }
+
+      .pr-body h2,
+      .pr-body b,
+      .pr-body td,
+      .pr-body li,
+      .pr-body p {
+        color: #0F172A;
+      }
+
+      .pr-body .muted {
+        color: #64748B !important;
+      }
+
+      .pr-body .table-wrap {
+        overflow: visible !important;
+        max-height: none !important;
+      }
+
+      .pr-body tr {
+        page-break-inside: avoid;
+      }
+
+      .pr-body .form-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px 32px;
+      }
+    }
+
     /* ---------- Select / Inputs ---------- */
     .select,
     .input-inline {
@@ -7354,8 +7422,11 @@
     <label style="display:block; margin-top:10px;">Learning Guide (text)
       <textarea id="tpGuide" rows="5" style="width:100%;" placeholder="Leave blank to use default text">${course.guide || ''}</textarea>
     </label>
-    <label style="display:block; margin-top:10px;">Learning Objectives (one per line)
+    <label style="display:block; margin-top:10px;">Objective (one per line) — used in Learning Objectives &amp; Training Plan
       <textarea id="tpObjectives" rows="4" style="width:100%;" placeholder="Leave blank to use default objectives">${(course.objectives || []).join('\n')}</textarea>
+    </label>
+    <label style="display:block; margin-top:10px;">Training Agenda (one per line, e.g. Introduction (10 min))
+      <textarea id="tpAgenda" rows="5" style="width:100%;" placeholder="Leave blank to use default agenda">${(course.agenda || []).join('\n')}</textarea>
     </label>
     <p class="muted">Renaming or reclassifying this topic won't affect its already-uploaded materials, progress, or assessment history.</p>
     <button class="btn-primary" id="tpSaveBtn">Save Changes</button>
@@ -7372,6 +7443,7 @@
             course.topic = box.querySelector("#tpTopic").value.trim() || course.topic;
             course.guide = box.querySelector("#tpGuide").value.trim();
             course.objectives = box.querySelector("#tpObjectives").value.split("\n").map(s => s.trim()).filter(Boolean);
+            course.agenda = box.querySelector("#tpAgenda").value.split("\n").map(s => s.trim()).filter(Boolean);
             saveDB(db);
             closeModal();
             toast("Topic updated.");
@@ -9097,7 +9169,7 @@
       <div><label>Trainer Rating</label><span>${avgRating ? starRating(avgRating) + ' (' + avgRating.toFixed(1) + '/5)' : '—'}</span></div>
     </div>
     <h4>Agenda</h4>
-    <ul class="obj-list"><li>Introduction & objectives</li><li>Core content: ${course ? course.title : s.title}</li><li>Practical demonstration / discussion</li><li>Q&A and assessment briefing</li></ul>
+    <ul class="obj-list">${((course && course.agenda && course.agenda.length) ? course.agenda : ["Introduction & objectives", "Core content: " + (course ? course.title : s.title), "Practical demonstration / discussion", "Q&A and assessment briefing"]).map(a => `<li>${a}</li>`).join('')}</ul>
     <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:12px;">
       <button class="btn-primary" id="dlBtn">Download Meeting / Training Plan</button>
       <button class="btn-small" id="docBtn">Open Training Documents</button>
@@ -10144,20 +10216,83 @@
       const fns = { plan: docTrainingPlan, material: docTrainingMaterial, attendance: docAttendanceSheet, assessment: docAssessment, evaluation: docEvaluationForm, certificate: docCertificate, evidence: docTrainingEvidence };
       (fns[App.state.tdTab] || docTrainingPlan)(sub, tr);
     }
+    function printTrainingDoc(trId, name) {
+      const src = document.getElementById("tdSubMount");
+      if (!src) return;
+      const old = document.getElementById("printRoot");
+      if (old) old.remove();
+      const root = document.createElement("div");
+      root.id = "printRoot";
+      root.innerHTML = `<div class="pr-head"><div class="pr-company">Mainetti (Bangladesh) Pvt. Ltd.</div></div><div class="pr-body">${src.innerHTML}</div>`;
+      root.querySelectorAll("button, select, input, textarea, .no-print").forEach(n => n.remove());
+      document.body.appendChild(root);
+      document.body.classList.add("printing");
+      const oldTitle = document.title;
+      document.title = `${(name || "Document").replace(/\s+/g, "_")}_${trId}`;
+      const done = () => {
+        document.body.classList.remove("printing");
+        document.title = oldTitle;
+        root.remove();
+        window.removeEventListener("afterprint", done);
+      };
+      window.addEventListener("afterprint", done);
+      window.print();
+    }
     function docHeader(tr, docTitle) {
       return `<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:14px;">
       <div><h2 style="margin:0 0 4px;">${docTitle}</h2><p class="muted" style="margin:0;">Training ID: <b>${tr.id}</b> · ${tr.title}</p></div>
-      <button class="btn-small" onclick="window.print()">🖨 Print / Export PDF</button>
+      <button class="btn-small no-print" onclick="printTrainingDoc('${tr.id}', '${docTitle.replace(/[^\w\s&]/g, '').trim()}')">🖨 Print / Export PDF</button>
     </div>`;
+    }
+    function planDefaultObjective(course, tr) {
+      return `Enable participants to demonstrate competency in ${course ? course.topic : tr.title}.`;
+    }
+    function planDefaultAgenda(course, tr) {
+      return ["Introduction & objectives (10 min)", `Core content — ${course ? course.topic : tr.title} (${course ? course.duration : '40 min'})`, "Practical demonstration / discussion (15 min)", "Assessment & Q/A (15 min)"];
+    }
+    function openEditPlanFields(tr, onSaved) {
+      const course = courseById(tr.courseId);
+      if (!course) { toast("This training is not linked to an E-Learning topic."); return; }
+      const defObj = planDefaultObjective(course, tr);
+      const defAgenda = planDefaultAgenda(course, tr);
+      const curObj = (course.objectives && course.objectives.length) ? course.objectives : [defObj];
+      const curAgenda = (course.agenda && course.agenda.length) ? course.agenda : defAgenda;
+      openModal("Edit Objective & Agenda", `
+    <p class="muted">Topic: <b>${course.title}</b>. Saved to this E-Learning topic, so every training on this topic uses it.</p>
+    <label style="display:block; margin-top:10px;">Objective (one per line)
+      <textarea id="tpaObj" rows="4" style="width:100%;">${curObj.join('\n')}</textarea>
+    </label>
+    <label style="display:block; margin-top:10px;">Agenda (one per line)
+      <textarea id="tpaAgenda" rows="6" style="width:100%;">${curAgenda.join('\n')}</textarea>
+    </label>
+    <button class="btn-primary" id="tpaSave" style="margin-top:12px;">Save</button>
+  `, {
+        onOpen: (box) => {
+          box.querySelector("#tpaSave").onclick = () => {
+            const lines = id => box.querySelector(id).value.split("\n").map(s => s.trim()).filter(Boolean);
+            const o = lines("#tpaObj"), a = lines("#tpaAgenda");
+            course.objectives = (o.length === 1 && o[0] === defObj) ? [] : o;
+            course.agenda = (a.join("\n") === defAgenda.join("\n")) ? [] : a;
+            saveDB(App.db);
+            closeModal();
+            toast("Objective & Agenda updated.");
+            onSaved();
+          };
+        }
+      });
     }
     function docTrainingPlan(el, tr) {
       const course = courseById(tr.courseId);
+      const objs = (course && course.objectives && course.objectives.length) ? course.objectives : [planDefaultObjective(course, tr)];
+      const agenda = (course && course.agenda && course.agenda.length) ? course.agenda : planDefaultAgenda(course, tr);
+      const canEdit = App.session && App.session.role !== "employee";
       el.innerHTML = `
     ${docHeader(tr, "📄 Training Plan")}
+    ${canEdit && course ? `<div class="no-print" style="margin:-6px 0 12px;"><button class="btn-small" id="tdEditPlanBtn">✎ Edit Objective &amp; Agenda</button></div>` : ''}
     <div class="form-grid">
       <div><b>Training ID</b><div>${tr.id}</div></div>
       <div><b>Training Name</b><div>${tr.title}</div></div>
-      <div><b>Objective</b><div>Enable participants to demonstrate competency in ${course ? course.topic : tr.title}.</div></div>
+      <div><b>Objective</b>${objs.length === 1 ? `<div>${objs[0]}</div>` : `<ul style="margin:4px 0 0 18px; padding:0;">${objs.map(o => `<li>${o}</li>`).join('')}</ul>`}</div>
       <div><b>Department</b><div>${tr.department}</div></div>
       <div><b>Trainer</b><div>${tr.trainer}</div></div>
       <div><b>Date</b><div>${tr.date}</div></div>
@@ -10170,12 +10305,9 @@
       <div><b>Pass Mark</b><div>70%</div></div>
     </div>
     <p style="margin-top:14px;"><b>Agenda</b></p>
-    <ol>
-      <li>Introduction &amp; objectives (10 min)</li>
-      <li>Core content — ${course ? course.topic : tr.title} (${course ? course.duration : '40 min'})</li>
-      <li>Practical demonstration / discussion (15 min)</li>
-      <li>Assessment &amp; Q/A (15 min)</li>
-    </ol>`;
+    <ol>${agenda.map(a => `<li>${a}</li>`).join('')}</ol>`;
+      const eb = document.getElementById("tdEditPlanBtn");
+      if (eb) eb.onclick = () => openEditPlanFields(tr, () => docTrainingPlan(el, tr));
     }
     function docTrainingMaterial(el, tr) {
       const course = courseById(tr.courseId);
