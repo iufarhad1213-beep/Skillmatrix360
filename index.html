@@ -1379,6 +1379,9 @@
     .ov2-kpi-grid {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
+      grid-auto-rows: 1fr;
+      /* sob row same height */
+      align-items: stretch;
       gap: 14px;
       margin-bottom: 20px;
     }
@@ -1427,6 +1430,10 @@
       flex-direction: column;
       overflow: hidden;
       transition: transform .15s, box-shadow .15s;
+      height: 100%;
+      min-height: 190px;
+      container-type: inline-size;
+      text-align: center;
     }
 
     .ov2-kpi-card.clickable {
@@ -1442,13 +1449,20 @@
       padding: 14px 14px 12px;
       display: flex;
       flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
       gap: 9px;
+      flex: 1;
+      width: 100%;
     }
 
     .ov2-kpi-top {
       display: flex;
       align-items: center;
+      justify-content: center;
       gap: 10px;
+      min-height: 36px;
+      width: 100%;
     }
 
     .ov2-kpi-icon {
@@ -1474,17 +1488,32 @@
 
     .ov2-kpi-value {
       font-size: 25px;
+      /* fallback */
+      font-size: clamp(22px, 17cqw, 36px);
+      /* card er width onujayi auto-adjust */
       font-weight: 800;
       font-family: var(--font-display);
       color: var(--text);
       letter-spacing: -0.01em;
+      line-height: 1.1;
+      text-align: center;
+      width: 100%;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .ov2-kpi-progress-track {
       height: 6px;
+      width: 100%;
       border-radius: 999px;
       background: #E5E7EB;
       overflow: hidden;
+    }
+
+    .ov2-kpi-progress-track.is-empty {
+      visibility: hidden;
+      /* progress nai emon card e jayga rakhe, tai sob card align thake */
     }
 
     [data-theme="dark"] .ov2-kpi-progress-track {
@@ -1502,7 +1531,12 @@
       font-weight: 700;
       display: flex;
       align-items: center;
+      justify-content: center;
+      text-align: center;
       gap: 5px;
+      min-height: 30px;
+      /* 1 line ba 2 line, duitai same height */
+      width: 100%;
     }
 
     .ov2-kpi-trend i {
@@ -1515,6 +1549,7 @@
       font-weight: 700;
       display: flex;
       align-items: center;
+      justify-content: center;
       gap: 5px;
       margin-top: auto;
       white-space: nowrap;
@@ -2247,6 +2282,169 @@
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: 10px 32px;
+      }
+    }
+
+    /* ---------- Master Documentation ---------- */
+    .md-filters {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+
+    .md-doc {
+      background: var(--card-solid);
+      border: 1px solid var(--border, #E2E8F0);
+      border-radius: 16px;
+      padding: 26px 30px;
+    }
+
+    .md-brand {
+      text-align: center;
+      font-size: 22px;
+      font-weight: 800;
+      color: #9B1B2E;
+      letter-spacing: .3px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #9B1B2E;
+      margin-bottom: 16px;
+    }
+
+    .md-trname {
+      font-size: 20px;
+      font-weight: 800;
+      margin-bottom: 14px;
+    }
+
+    .md-trname span {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--muted, #64748B);
+      margin-right: 6px;
+    }
+
+    .md-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px 32px;
+      margin-bottom: 16px;
+    }
+
+    .md-grid span {
+      display: block;
+      font-size: 12px;
+      color: var(--muted, #64748B);
+    }
+
+    .md-grid b {
+      font-size: 14px;
+    }
+
+    .md-sec {
+      font-weight: 800;
+      font-size: 14px;
+      margin: 20px 0 8px;
+      padding-bottom: 4px;
+      border-bottom: 1px solid var(--border, #E2E8F0);
+    }
+
+    .md-sub {
+      font-weight: 700;
+      margin: 12px 0 6px;
+      color: #9B1B2E;
+    }
+
+    .md-q {
+      margin-bottom: 10px;
+      font-size: 13px;
+      page-break-inside: avoid;
+    }
+
+    .md-opts {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2px 18px;
+      margin: 4px 0 2px 14px;
+    }
+
+    .md-ans {
+      margin-left: 14px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #15803D;
+    }
+
+    .md-ev {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+
+    .md-ev figure {
+      margin: 0;
+      border: 1px solid var(--border, #E2E8F0);
+      border-radius: 10px;
+      overflow: hidden;
+      page-break-inside: avoid;
+    }
+
+    .md-ev img {
+      width: 100%;
+      height: 130px;
+      object-fit: cover;
+      display: block;
+    }
+
+    .md-ev figcaption {
+      padding: 6px 8px;
+      font-size: 11.5px;
+    }
+
+    .md-sign {
+      margin-top: 56px;
+      display: flex;
+      justify-content: flex-end;
+      page-break-inside: avoid;
+    }
+
+    .md-sign div {
+      min-width: 240px;
+      text-align: center;
+    }
+
+    .md-sign .line {
+      border-top: 1px solid #0F172A;
+      margin-bottom: 6px;
+    }
+
+    @media (max-width: 700px) {
+
+      .md-grid,
+      .md-opts,
+      .md-ev {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media print {
+      .pr-body .md-doc {
+        border: none !important;
+        padding: 0 !important;
+        background: none !important;
+        box-shadow: none !important;
+      }
+
+      .pr-body .md-grid span,
+      .pr-body .md-trname span {
+        color: #64748B !important;
+      }
+
+      .pr-body .md-grid b,
+      .pr-body .md-trname,
+      .pr-body .md-sec {
+        color: #0F172A;
       }
     }
 
@@ -5764,7 +5962,7 @@
       const trendClass = trendType === 'up' ? 'ov2-trend-up' : trendType === 'down' ? 'ov2-trend-down' : trendType === 'none' ? 'ov2-trend-up' : 'ov2-trend-flat';
       const progress = progressPct != null
         ? `<div class="ov2-kpi-progress-track"><div class="ov2-kpi-progress-fill" style="width:${Math.min(100, Math.max(0, progressPct))}%;background:${progressColor}"></div></div>`
-        : '';
+        : `<div class="ov2-kpi-progress-track is-empty"></div>`;
       const footer = footerText
         ? `<div class="ov2-kpi-footer" style="background:${footerBg};color:${footerColor}">${footerIcon ? `<i class="${footerIcon}"></i>` : ''} ${footerText}</div>`
         : '';
@@ -7428,6 +7626,9 @@
     <label style="display:block; margin-top:10px;">Training Agenda (one per line, e.g. Introduction (10 min))
       <textarea id="tpAgenda" rows="5" style="width:100%;" placeholder="Leave blank to use default agenda">${(course.agenda || []).join('\n')}</textarea>
     </label>
+    <label style="display:block; margin-top:10px;">Key of Topic (one per line) — shown in Master Documentation
+      <textarea id="tpKey" rows="4" style="width:100%;" placeholder="e.g. Sort, Set in order, Shine...">${(course.keyOfTopic || []).join('\n')}</textarea>
+    </label>
     <p class="muted">Renaming or reclassifying this topic won't affect its already-uploaded materials, progress, or assessment history.</p>
     <button class="btn-primary" id="tpSaveBtn">Save Changes</button>
   `, {
@@ -7443,6 +7644,7 @@
             course.topic = box.querySelector("#tpTopic").value.trim() || course.topic;
             course.guide = box.querySelector("#tpGuide").value.trim();
             course.objectives = box.querySelector("#tpObjectives").value.split("\n").map(s => s.trim()).filter(Boolean);
+            course.keyOfTopic = box.querySelector("#tpKey").value.split("\n").map(s => s.trim()).filter(Boolean);
             course.agenda = box.querySelector("#tpAgenda").value.split("\n").map(s => s.trim()).filter(Boolean);
             saveDB(db);
             closeModal();
@@ -10197,7 +10399,7 @@
         ["plan", "📄", "Training Plan"], ["material", "📚", "Training Material"],
         ["attendance", "👥", "Attendance Sheet"], ["assessment", "📝", "Assessment"],
         ["evaluation", "⭐", "Evaluation Form"], ["certificate", "🏆", "Certificate"],
-        ["evidence", "📸", "Training Evidence"]
+        ["evidence", "📸", "Training Evidence"], ["master", "🗂", "Master Documentation"]
       ];
       mount.innerHTML = `
     <div class="page-head"><div><h1>📁 Training Documents</h1><p class="muted">Automatically generated from Training Records — no repeat data entry</p></div></div>
@@ -10212,6 +10414,7 @@
       document.querySelectorAll(".td-tab").forEach(b => b.onclick = () => { App.state.tdTab = b.dataset.tab; renderTrainingDocuments(mount); });
       const tr = trainingById(App.state.tdTrainingId);
       const sub = document.getElementById("tdSubMount");
+      if (App.state.tdTab === "master") { docMasterDoc(sub); return; }
       if (!tr) { sub.innerHTML = `<p class="muted">No training records yet.</p>`; return; }
       const fns = { plan: docTrainingPlan, material: docTrainingMaterial, attendance: docAttendanceSheet, assessment: docAssessment, evaluation: docEvaluationForm, certificate: docCertificate, evidence: docTrainingEvidence };
       (fns[App.state.tdTab] || docTrainingPlan)(sub, tr);
@@ -10223,7 +10426,8 @@
       if (old) old.remove();
       const root = document.createElement("div");
       root.id = "printRoot";
-      root.innerHTML = `<div class="pr-head"><div class="pr-company">Mainetti (Bangladesh) Pvt. Ltd.</div></div><div class="pr-body">${src.innerHTML}</div>`;
+      const hasOwnHead = !!src.querySelector(".md-brand");
+      root.innerHTML = `${hasOwnHead ? '' : '<div class="pr-head"><div class="pr-company">Mainetti (Bangladesh) Pvt. Ltd.</div></div>'}<div class="pr-body">${src.innerHTML}</div>`;
       root.querySelectorAll("button, select, input, textarea, .no-print").forEach(n => n.remove());
       document.body.appendChild(root);
       document.body.classList.add("printing");
@@ -10431,6 +10635,189 @@
       document.getElementById("tdCertEmpSel").onchange = draw;
       draw();
     }
+    const EVID_TYPES = ["Training Photo", "Attendance Proof", "Practical Training Photo", "Assessment Evidence", "Group Photo", "Supporting Document"];
+    function escHtml(s) {
+      return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+    function viewEvidence(x) {
+      if (!x) return;
+      const w = window.open("", "_blank", "width=1000,height=750,resizable=yes,scrollbars=yes");
+      if (!w) { toast("Pop-up blocked. Please allow pop-ups for this site."); return; }
+      const img = x.dataUrl ? `<img id="im" src="${x.dataUrl}"/>` : `<div style="font-size:64px; margin-top:60px;">📄</div>`;
+      w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escHtml(x.type)} · ${escHtml(x.trainingId)}</title>
+<style>
+  body{margin:0;background:#0F172A;color:#fff;font-family:Inter,Arial,sans-serif;display:flex;flex-direction:column;height:100vh}
+  .bar{display:flex;gap:8px;align-items:center;padding:10px 14px;background:#111C33;flex-wrap:wrap}
+  .bar .info{margin-right:auto}
+  .bar small{color:#94A3B8;display:block}
+  button{background:#1E293B;color:#fff;border:1px solid #334155;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:14px}
+  button:hover{background:#334155}
+  .stage{flex:1;overflow:auto;display:flex;justify-content:center;align-items:flex-start;padding:16px}
+  img{max-width:100%;height:auto;display:block}
+</style></head><body>
+<div class="bar">
+  <div class="info"><b>${escHtml(x.type)}</b><small>${escHtml(x.description || "")} ${escHtml(x.date || "")}</small></div>
+  ${x.dataUrl ? `<button id="zo">−</button><button id="zi">+</button><button id="fit">Fit</button><button id="one">100%</button>` : ""}
+  <button onclick="window.close()">Close</button>
+</div>
+<div class="stage">${img}</div>
+<script>
+  var im=document.getElementById('im');
+  if(im){
+    var z=0;
+    function cur(){return im.getBoundingClientRect().width;}
+    document.getElementById('zi').onclick=function(){z=cur()*1.25;im.style.maxWidth='none';im.style.width=z+'px';};
+    document.getElementById('zo').onclick=function(){z=Math.max(80,cur()/1.25);im.style.maxWidth='none';im.style.width=z+'px';};
+    document.getElementById('fit').onclick=function(){im.style.width='';im.style.maxWidth='100%';};
+    document.getElementById('one').onclick=function(){im.style.maxWidth='none';im.style.width=im.naturalWidth+'px';};
+    document.addEventListener('keydown',function(e){
+      if(e.key==='+'||e.key==='=')document.getElementById('zi').click();
+      if(e.key==='-')document.getElementById('zo').click();
+      if(e.key==='Escape')window.close();
+    });
+  }
+<\/script></body></html>`);
+      w.document.close();
+    }
+    function openEditEvidence(x, onSaved) {
+      if (!x) return;
+      openModal("Edit Evidence", `
+    <div class="form-grid">
+      <label>Type<select id="evType">${EVID_TYPES.map(t => `<option ${x.type === t ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+      <label>Description<input id="evDesc" value="${escHtml(x.description || '')}"/></label>
+    </div>
+    <label style="display:block; margin-top:10px;">Replace image (optional)<input type="file" id="evFile" accept="image/*"/></label>
+    <button class="btn-primary" id="evSave" style="margin-top:12px;">Save Changes</button>
+  `, {
+        onOpen: (box) => {
+          box.querySelector("#evSave").onclick = () => {
+            const apply = (dataUrl) => {
+              const prev = { type: x.type, description: x.description, dataUrl: x.dataUrl };
+              x.type = box.querySelector("#evType").value;
+              x.description = box.querySelector("#evDesc").value.trim();
+              if (dataUrl) x.dataUrl = dataUrl;
+              try { saveDB(App.db); closeModal(); toast("Evidence updated."); onSaved(); }
+              catch (e) { Object.assign(x, prev); toast("Storage limit reached. Try a smaller image."); }
+            };
+            const file = box.querySelector("#evFile").files[0];
+            if (file) {
+              const r = new FileReader();
+              r.onload = (e) => apply(e.target.result);
+              r.onerror = () => toast("Couldn't read that file.");
+              r.readAsDataURL(file);
+            } else apply(null);
+          };
+        }
+      });
+    }
+    function openEditMasterMeta(course, onSaved) {
+      const m = course.docMeta || {};
+      openModal("Edit Document Info", `
+    <p class="muted">Topic: <b>${escHtml(course.title)}</b>. Applies to this topic's Master Documentation.</p>
+    <div class="form-grid">
+      <label>Issue Date<input type="date" id="mmIssue" value="${escHtml(m.issueDate || '')}"/></label>
+      <label>Version<input id="mmVer" value="${escHtml(m.version || '')}" placeholder="e.g. 01"/></label>
+      <label>Revision Date<input type="date" id="mmRev" value="${escHtml(m.revisionDate || '')}"/></label>
+    </div>
+    <label style="display:block; margin-top:10px;">Key of Topic (one per line)
+      <textarea id="mmKey" rows="5" style="width:100%;">${escHtml((course.keyOfTopic || []).join('\n'))}</textarea>
+    </label>
+    <button class="btn-primary" id="mmSave" style="margin-top:12px;">Save</button>
+  `, {
+        onOpen: (box) => {
+          box.querySelector("#mmSave").onclick = () => {
+            course.docMeta = {
+              issueDate: box.querySelector("#mmIssue").value,
+              version: box.querySelector("#mmVer").value.trim(),
+              revisionDate: box.querySelector("#mmRev").value
+            };
+            course.keyOfTopic = box.querySelector("#mmKey").value.split("\n").map(s => s.trim()).filter(Boolean);
+            saveDB(App.db);
+            closeModal();
+            toast("Document info updated.");
+            onSaved();
+          };
+        }
+      });
+    }
+    function docMasterDoc(el) {
+      const db = App.db, st = App.state;
+      const tdSel = document.getElementById("tdTraining");
+      if (tdSel) tdSel.style.display = "none";
+      st.mdDept = st.mdDept || "All";
+      const courses = db.courses.filter(c => st.mdDept === "All" || courseVisibleToDept(c, st.mdDept));
+      if (!courses.find(c => c.id === st.mdCourse)) st.mdCourse = courses[0] ? courses[0].id : null;
+      const course = courses.find(c => c.id === st.mdCourse) || null;
+      const sessions = course
+        ? (db.schedule || []).filter(s => s.courseId === course.id && (st.mdDept === "All" || s.department === st.mdDept)).sort((a, b) => new Date(b.date) - new Date(a.date))
+        : [];
+      if (!sessions.find(s => s.id === st.mdSession)) st.mdSession = sessions[0] ? sessions[0].id : null;
+      const tr = sessions.find(s => s.id === st.mdSession) || null;
+
+      const meta = (course && course.docMeta) || {};
+      const dash = v => (v && String(v).trim()) ? escHtml(v) : "—";
+      const rows = tr ? trainingParticipantRows(tr) : [];
+      const evid = tr ? empEvidence(tr.id) : [];
+      const trainerName = tr ? String(tr.trainer || "").replace(/^Trainer:\s*/i, "") : "";
+      const letters = "ABCDEFGH";
+      const mcqHtml = (list) => list.map((m, i) => `
+        <div class="md-q"><b>${i + 1}. ${m.q}</b>
+          <div class="md-opts">${(m.options || []).map((o, k) => `<span>${letters[k] || (k + 1)}. ${o}</span>`).join('')}</div>
+          <div class="md-ans">Answer: ${m.answer != null ? (letters[m.answer] || m.answer) : '—'}</div>
+        </div>`).join('');
+      const writtenHtml = (list) => list.length ? `<div class="md-q"><b>Written Questions</b><ol>${list.map(q => `<li>${q}</li>`).join('')}</ol></div>` : '';
+      const qBlock = (label, type) => `<p class="md-sub">${label}</p>${mcqHtml(courseMcqSet(course, type))}${writtenHtml(courseWrittenSet(course, type))}`;
+
+      el.innerHTML = `
+    <div class="md-filters no-print">
+      <select id="mdDept" class="select">${deptOptionsWithAll(st.mdDept)}</select>
+      <select id="mdCourse" class="select" style="min-width:220px;">${courses.map(c => `<option value="${c.id}" ${c.id === st.mdCourse ? 'selected' : ''}>${c.title}</option>`).join('') || '<option value="">No topics</option>'}</select>
+      <select id="mdSession" class="select">${sessions.map(s => `<option value="${s.id}" ${s.id === st.mdSession ? 'selected' : ''}>${s.date} · ${s.id}</option>`).join('') || '<option value="">No training session</option>'}</select>
+      <button class="btn-small" id="mdEditBtn" ${course ? '' : 'disabled'}>✎ Edit Document Info</button>
+      <button class="btn-small" id="mdPrintBtn" ${course ? '' : 'disabled'}>🖨 Print / Export PDF</button>
+    </div>
+    ${course ? `
+    <div class="md-doc">
+      <div class="md-brand">Mainetti (Bangladesh) Pvt. Ltd.</div>
+      <div class="md-trname"><span>Training Name :</span>${escHtml(course.title)}</div>
+      <div class="md-grid">
+        <div><span>Training Date</span><b>${tr ? escHtml(tr.date) : '—'}</b></div>
+        <div><span>Training Location</span><b>${tr ? escHtml(tr.venue || '—') : '—'}</b></div>
+        <div><span>Trainer Name</span><b>${dash(trainerName)}</b></div>
+        <div><span>Issue Date</span><b>${dash(meta.issueDate)}</b></div>
+        <div><span>Version</span><b>${dash(meta.version)}</b></div>
+        <div><span>Revision Date</span><b>${dash(meta.revisionDate)}</b></div>
+      </div>
+
+      <div class="md-sec">Key of Topic</div>
+      ${(course.keyOfTopic && course.keyOfTopic.length) ? `<ul>${course.keyOfTopic.map(k => `<li>${escHtml(k)}</li>`).join('')}</ul>` : `<p class="muted">— (add from E-Learning → Edit Topic)</p>`}
+
+      <div class="md-sec">List of Participants</div>
+      ${table(["SL", "Employee ID", "Name", "Department", "Designation", "Attendance"],
+        rows.length ? rows.map((r, i) => `<tr><td>${i + 1}</td><td>${r.emp.id}</td><td>${r.emp.name}</td><td>${r.emp.department}</td><td>${r.emp.designation || '—'}</td><td>${r.att ? r.att.status : '—'}</td></tr>`)
+          : [`<tr><td colspan="6" class="muted">No participants${tr ? '' : ' (no training session for this topic yet)'}.</td></tr>`])}
+
+      <div class="md-sec">Pre &amp; Post Assessment Question Set</div>
+      ${qBlock("Pre-Assessment", "pre")}
+      ${qBlock("Post-Assessment", "post")}
+
+      <div class="md-sec">Training Evidence</div>
+      ${evid.length ? `<div class="md-ev">${evid.map(x => `
+        <figure>${x.dataUrl ? `<img src="${x.dataUrl}"/>` : `<div style="height:130px; display:flex; align-items:center; justify-content:center; font-size:30px;">📄</div>`}
+          <figcaption><b>${escHtml(x.type)}</b><br/>${escHtml(x.description || '')}<br/>${escHtml(x.date || '')}</figcaption></figure>`).join('')}</div>`
+            : `<p class="muted">No evidence uploaded yet.</p>`}
+
+      <div class="md-sign"><div><div class="line"></div><b>${dash(trainerName)}</b><br/>Trainer Signature</div></div>
+    </div>` : `<p class="muted">No E-Learning topic found for this department.</p>`}`;
+
+      document.getElementById("mdDept").onchange = (e) => { st.mdDept = e.target.value; st.mdCourse = null; st.mdSession = null; docMasterDoc(el); };
+      document.getElementById("mdCourse").onchange = (e) => { st.mdCourse = e.target.value; st.mdSession = null; docMasterDoc(el); };
+      document.getElementById("mdSession").onchange = (e) => { st.mdSession = e.target.value; docMasterDoc(el); };
+      if (course) {
+        document.getElementById("mdEditBtn").onclick = () => openEditMasterMeta(course, () => docMasterDoc(el));
+        document.getElementById("mdPrintBtn").onclick = () => printTrainingDoc(tr ? tr.id : course.id, "Master Documentation");
+      }
+    }
     function docTrainingEvidence(el, tr) {
       App.db.trainingEvidence = App.db.trainingEvidence || [];
       const items = empEvidence(tr.id);
@@ -10447,13 +10834,29 @@
       <input type="file" id="tdEvidFile" accept="image/*" style="max-width:200px;"/>
       <button class="btn-primary" id="tdEvidAddBtn">+ Add Evidence</button>
     </div>`;
+      const canManage = App.session && App.session.role !== "employee";
       const drawGrid = () => {
         const list = empEvidence(tr.id);
         document.getElementById("tdEvidGrid").innerHTML = list.length ? list.map(x => `
       <div style="border:1px solid var(--border,#E2E8F0); border-radius:10px; overflow:hidden;">
-        ${x.dataUrl ? `<img src="${x.dataUrl}" style="width:100%; height:100px; object-fit:cover;"/>` : `<div style="height:100px; display:flex; align-items:center; justify-content:center; background:var(--card-bg,#F8FAFC); font-size:28px;">📄</div>`}
+        ${x.dataUrl ? `<img src="${x.dataUrl}" class="ev-view" data-id="${x.id}" style="width:100%; height:100px; object-fit:cover; cursor:pointer;"/>` : `<div class="ev-view" data-id="${x.id}" style="height:100px; cursor:pointer; display:flex; align-items:center; justify-content:center; background:var(--card-bg,#F8FAFC); font-size:28px;">📄</div>`}
         <div style="padding:8px; font-size:12px;"><b>${x.type}</b><br/><span class="muted">${x.description || ''}</span><br/><span class="muted">${x.date}</span></div>
+        <div class="no-print" style="display:flex; gap:6px; padding:0 8px 8px; flex-wrap:wrap;">
+          <button class="btn-small ev-view" data-id="${x.id}">👁 View</button>
+          ${canManage ? `<button class="btn-small ev-edit" data-id="${x.id}">✎ Edit</button><button class="btn-small ev-del" data-id="${x.id}">🗑 Remove</button>` : ''}
+        </div>
       </div>`).join('') : `<p class="muted">No evidence uploaded yet.</p>`;
+        const find = id => (App.db.trainingEvidence || []).find(e => e.id === id);
+        document.querySelectorAll("#tdEvidGrid .ev-view").forEach(b => b.onclick = () => viewEvidence(find(b.dataset.id)));
+        document.querySelectorAll("#tdEvidGrid .ev-edit").forEach(b => b.onclick = () => openEditEvidence(find(b.dataset.id), drawGrid));
+        document.querySelectorAll("#tdEvidGrid .ev-del").forEach(b => b.onclick = () => {
+          const x = find(b.dataset.id);
+          if (!x || !confirm(`Remove this evidence (${x.type})?`)) return;
+          App.db.trainingEvidence = App.db.trainingEvidence.filter(e => e.id !== x.id);
+          saveDB(App.db);
+          toast("Evidence removed.");
+          drawGrid();
+        });
       };
       drawGrid();
       document.getElementById("tdEvidAddBtn").onclick = () => {
