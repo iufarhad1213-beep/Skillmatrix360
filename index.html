@@ -2861,6 +2861,24 @@
       margin-bottom: 16px;
     }
 
+    .media-locked {
+      background: var(--bg);
+      border: 1px dashed var(--border);
+      border-radius: 14px;
+      padding: 40px 20px;
+      margin-bottom: 16px;
+      text-align: center;
+    }
+
+    .media-locked-icon {
+      font-size: 32px;
+      margin-bottom: 10px;
+    }
+
+    .media-locked p {
+      margin-bottom: 14px;
+    }
+
     .obj-list {
       margin: 0 0 16px;
       padding-left: 18px;
@@ -7823,6 +7841,8 @@
       const prog = isEmpLike ? progressOf(user, course.id) : { progress: 0, completed: false };
       const attempts = isEmpLike ? (user.attempts[course.id] || []) : [];
       const hasPassedPost = attempts.some(a => a.type === "post" && a.passed);
+      const hasPre = attempts.some(a => a.type === "pre");
+      const materialLocked = isEmpLike && !hasPre;
 
       mount.innerHTML = `
     <div class="page-head"><div><h1>${course.title}</h1><p class="muted">${course.dept} · ${course.duration} · ${course.difficulty}</p></div>
@@ -7835,7 +7855,13 @@
     <div class="grid-2">
       <div class="panel">
         <h3>Learning Material</h3>
-        ${course.type === 'video' ? `
+        ${materialLocked ? `
+          <div class="media-locked">
+            <div class="media-locked-icon">🔒</div>
+            <p class="muted">Complete the Pre-Assessment to unlock this ${course.type === 'video' ? 'video' : 'PDF'}.</p>
+            <button class="btn-primary" id="unlockPreBtn">Start Pre-Assessment</button>
+          </div>
+        ` : course.type === 'video' ? `
           <div class="video-player" id="videoPlayer" data-course="${course.id}">
             <div class="video-stage"></div>
             <div class="video-scene-tag">${course.topic}</div>
@@ -7902,7 +7928,7 @@
       </div>
     </div>`;
 
-      if (course.type === 'video') initVideoPlayer(course, user, isEmpLike);
+      if (course.type === 'video' && !materialLocked) initVideoPlayer(course, user, isEmpLike);
 
       wireMaterials(course, canManageMaterials);
       if (canManageMaterials) {
@@ -7929,6 +7955,8 @@
         renderCourseDetail(courseId);
       };
       document.getElementById("preBtn").onclick = () => startAssessment(course.id, "pre");
+      const unlockPreBtn = document.getElementById("unlockPreBtn");
+      if (unlockPreBtn) unlockPreBtn.onclick = () => startAssessment(course.id, "pre");
       document.getElementById("postBtn").onclick = () => {
         if (document.getElementById("postBtn").disabled) return;
         startAssessment(course.id, "post");
