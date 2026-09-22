@@ -1182,6 +1182,42 @@
       opacity: .8;
     }
 
+    /* ---------- Trainer Evaluation summary cards: one horizontal line, label above value ---------- */
+    #teSummary.kpi-grid {
+      display: flex;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      gap: 12px;
+      padding-bottom: 4px;
+    }
+
+    #teSummary.kpi-grid .kpi-card {
+      display: flex;
+      flex-direction: column;
+      flex: 1 0 150px;
+      min-width: 150px;
+    }
+
+    #teSummary .kpi-icon {
+      order: 1;
+    }
+
+    #teSummary .kpi-label {
+      order: 2;
+      margin-top: 6px;
+      font-weight: 600;
+      font-size: 12px;
+    }
+
+    #teSummary .kpi-value {
+      order: 3;
+      margin-top: 4px;
+    }
+
+    #teSummary .kpi-sub {
+      order: 4;
+    }
+
     .grid-2 {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -2939,6 +2975,13 @@
     .material-upload-row input[type=file] {
       font-size: 12.5px;
       max-width: 220px;
+    }
+
+    .ar-pdf-btns {
+      display: flex;
+      gap: 10px;
+      margin: 4px 0 10px;
+      flex-wrap: wrap;
     }
 
     .material-list {
@@ -4711,6 +4754,87 @@
     }
 
     /* ---------- Competency Validation PDF Poster ---------- */
+    .ar-pdf-poster {
+      position: absolute;
+      left: -99999px;
+      top: 0;
+      width: 800px;
+      background: #fff;
+      font-family: 'Inter', 'Segoe UI', 'Noto Sans Bengali', sans-serif;
+      color: #0F172A;
+      padding: 28px;
+      box-sizing: border-box;
+    }
+
+    .ar-pdf-poster * {
+      box-sizing: border-box;
+    }
+
+    .ar-pdf-company {
+      font-size: 18px;
+      font-weight: 800;
+      color: #9B1B2E;
+      text-align: center;
+    }
+
+    .ar-pdf-subtitle {
+      font-size: 13px;
+      font-weight: 700;
+      color: #0F172A;
+      text-align: center;
+      margin-top: 4px;
+    }
+
+    .ar-pdf-meta {
+      margin: 16px 0;
+      font-size: 12.5px;
+      line-height: 1.9;
+      border-top: 1px solid #CBD5E1;
+      border-bottom: 1px solid #CBD5E1;
+      padding: 10px 0;
+    }
+
+    .ar-pdf-q {
+      margin-bottom: 14px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #E2E8F0;
+    }
+
+    .ar-pdf-qtext {
+      font-size: 12.5px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .ar-pdf-option {
+      font-size: 12px;
+      padding: 2px 0 2px 18px;
+      position: relative;
+    }
+
+    .ar-pdf-marker {
+      position: absolute;
+      left: 0;
+      font-weight: 800;
+    }
+
+    .ar-pdf-option.ar-pdf-correct {
+      color: #16A34A;
+      font-weight: 700;
+    }
+
+    .ar-pdf-option.ar-pdf-wrong {
+      color: #DC2626;
+      font-weight: 700;
+    }
+
+    .ar-pdf-ans {
+      font-size: 11.5px;
+      color: #475569;
+      font-style: italic;
+      margin-top: 6px;
+    }
+
     .cv-poster {
       position: absolute;
       left: -99999px;
@@ -6349,7 +6473,7 @@
       return list.map(d => {
         const emps = db.employees.filter(e => e.department === d);
         const total = emps.length;
-        const finished = emps.filter(e => e.trainingRecords.length > 0 && e.trainingRecords.every(r => r.status === "Completed")).length;
+        const finished = emps.filter(e => e.trainingRecords.some(r => r.status === "Completed")).length;
         const trainingNeeded = allSkillGapRows(db, d).length;
         const completionPct = pct(finished, total);
         let status, statusClass;
@@ -10414,9 +10538,73 @@
       <div><b>Result</b><div>${post ? (post.passed ? '✅ PASS' : '❌ FAIL') : 'Pending'}</div></div>
       <div><b>Retake Status</b><div>${post && !post.passed ? 'Retake Required' : 'Not Required'}</div></div>
     </div>
+    <div class="ar-pdf-btns">
+      <button class="btn-outline" id="arPreTestPdfBtn">⬇ Pre-Test PDF</button>
+      <button class="btn-outline" id="arPostTestPdfBtn">⬇ Post-Test PDF</button>
+    </div>
     ${detailHtml}
     ${!post || !post.passed ? `<div class="muted" style="margin-top:10px;">Failed Assessment → Related E-Learning → Re-learning → Retake Assessment → Pass → Training Record Updated</div>` : ''}
   `);
+      const preBtn = document.getElementById("arPreTestPdfBtn");
+      const postBtn = document.getElementById("arPostTestPdfBtn");
+      const wirePdfBtn = (btn, attemptType, attempt) => {
+        if (!btn) return;
+        btn.onclick = async () => {
+          const orig = btn.textContent;
+          btn.disabled = true; btn.textContent = "⏳ Preparing...";
+          try { await downloadAssessmentPdf(emp, tr, course, attemptType, attempt); }
+          finally { btn.disabled = false; btn.textContent = orig; }
+        };
+      };
+      wirePdfBtn(preBtn, "pre", pre);
+      wirePdfBtn(postBtn, "post", post);
+    }
+
+    function buildAssessmentPdfHtml(emp, tr, type, attempt) {
+      const rows = attempt.detail.map((d, i) => {
+        const q = d.q;
+        const optionsHtml = (q.options || []).map((opt, oi) => {
+          const isCorrect = oi === q.answer;
+          const isGiven = oi === d.given;
+          const cls = isCorrect ? "ar-pdf-correct" : (isGiven ? "ar-pdf-wrong" : "");
+          const marker = isCorrect ? "✓" : (isGiven ? "✗" : "");
+          return `<div class="ar-pdf-option ${cls}"><span class="ar-pdf-marker">${marker}</span>${String.fromCharCode(65 + oi)}) ${opt}</div>`;
+        }).join('');
+        const yourAns = d.given === null ? "Not Answered" : `${String.fromCharCode(65 + d.given)}) ${q.options[d.given]}`;
+        const correctAns = `${String.fromCharCode(65 + q.answer)}) ${q.options[q.answer]}`;
+        return `<div class="ar-pdf-q">
+      <div class="ar-pdf-qtext">Q${i + 1}. ${q.q}</div>
+      ${optionsHtml}
+      <div class="ar-pdf-ans">Your Answer: ${yourAns} &nbsp;|&nbsp; Correct Answer: ${correctAns} &nbsp;|&nbsp; ${d.correct ? "Correct" : "Wrong"}</div>
+    </div>`;
+      }).join('');
+      return `
+    <div class="ar-pdf-company">Mainetti (Bangladesh) Pvt. Ltd.</div>
+    <div class="ar-pdf-subtitle">${type === "pre" ? "Pre-Assessment" : "Post-Assessment"} Report</div>
+    <div class="ar-pdf-meta">
+      <div><b>Training Name :</b> ${tr.title}</div>
+      <div><b>Employee Name :</b> ${emp.name} &nbsp; (ID: ${emp.id})</div>
+      <div><b>Department :</b> ${emp.department}</div>
+      <div><b>Date :</b> ${attempt.date} &nbsp; <b>Score :</b> ${attempt.score}% &nbsp; <b>Result :</b> ${attempt.passed ? "PASS" : "FAIL"}</div>
+    </div>
+    ${rows}`;
+    }
+
+    async function downloadAssessmentPdf(emp, tr, course, type, attempt) {
+      if (!attempt || !attempt.detail || !attempt.detail.length) {
+        toast(`No detailed ${type === "pre" ? "Pre-Test" : "Post-Test"} question data available for this attempt.`);
+        return;
+      }
+      const holder = document.createElement("div");
+      holder.className = "ar-pdf-poster";
+      holder.innerHTML = buildAssessmentPdfHtml(emp, tr, type, attempt);
+      document.body.appendChild(holder);
+      try {
+        const canvas = await html2canvas(holder, { scale: 2, backgroundColor: "#FFFFFF", useCORS: true });
+        savePosterCanvasAsA4Pdf(canvas, `${emp.id}_${tr.id}_${type === "pre" ? "PreTest" : "PostTest"}.pdf`);
+      } finally {
+        document.body.removeChild(holder);
+      }
     }
 
     /* ---- 3.5 Trainer Evaluation ---- */
