@@ -2948,6 +2948,14 @@
       margin-bottom: 8px;
     }
 
+    .material-item.locked {
+      opacity: 0.6;
+    }
+
+    .material-item.locked .view-material {
+      cursor: not-allowed;
+    }
+
     .material-item {
       display: flex;
       align-items: center;
@@ -7901,7 +7909,7 @@
           <input type="file" id="matFile" accept="video/*,application/pdf"/>
           <button class="btn-small" id="matUploadBtn">+ Upload</button>
         </div>` : ''}
-        <div class="material-list" id="materialsList">${materialsListHTML(course, canManageMaterials)}</div>
+        <div class="material-list" id="materialsList">${materialsListHTML(course, canManageMaterials, materialLocked)}</div>
         <div class="progress-bar big"><div class="progress-fill" style="width:${prog.progress}%"></div></div>
         <div class="course-foot">
           <span class="muted">Progress: ${prog.progress}%</span>
@@ -7930,7 +7938,7 @@
 
       if (course.type === 'video' && !materialLocked) initVideoPlayer(course, user, isEmpLike);
 
-      wireMaterials(course, canManageMaterials);
+      wireMaterials(course, canManageMaterials, materialLocked);
       if (canManageMaterials) {
         const editBtn = document.getElementById("editTopicBtn");
         if (editBtn) editBtn.onclick = () => openEditTopic(course.id);
@@ -7975,29 +7983,29 @@
       if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
       return (bytes / 1024 / 1024).toFixed(1) + " MB";
     }
-    function materialsListHTML(course, canManage) {
+    function materialsListHTML(course, canManage, locked) {
       const mats = course.materials || [];
       if (!mats.length) return '<p class="muted">No additional materials uploaded yet.</p>';
       return mats.map(m => `
-    <div class="material-item" data-mid="${m.id}">
-      <div class="material-icon">${materialIcon(m.type)}</div>
+    <div class="material-item${locked ? ' locked' : ''}" data-mid="${m.id}">
+      <div class="material-icon">${locked ? '🔒' : materialIcon(m.type)}</div>
       <div class="material-info">
         <b>${m.title}</b>
-        <span class="muted">${m.type.toUpperCase()} · ${m.sizeLabel || ''} · added ${m.uploadedAt}${m.uploadedBy ? ' by ' + m.uploadedBy : ''}</span>
+        <span class="muted">${locked ? 'Locked — complete the Pre-Assessment to unlock' : `${m.type.toUpperCase()} · ${m.sizeLabel || ''} · added ${m.uploadedAt}${m.uploadedBy ? ' by ' + m.uploadedBy : ''}`}</span>
       </div>
       <div class="material-actions">
-        <button class="btn-small view-material" data-mid="${m.id}">${m.type === 'video' ? 'Watch' : 'View'}</button>
+        <button class="btn-small view-material" data-mid="${m.id}">${locked ? '🔒 Locked' : (m.type === 'video' ? 'Watch' : 'View')}</button>
         ${canManage ? `<button class="btn-small danger remove-material" data-mid="${m.id}">Remove</button>` : ''}
       </div>
     </div>`).join('');
     }
-    function refreshMaterialsList(course, canManage) {
+    function refreshMaterialsList(course, canManage, locked) {
       const box = document.getElementById("materialsList");
-      if (box) box.innerHTML = materialsListHTML(course, canManage);
-      bindMaterialItemActions(course, canManage);
+      if (box) box.innerHTML = materialsListHTML(course, canManage, locked);
+      bindMaterialItemActions(course, canManage, locked);
     }
-    function wireMaterials(course, canManage) {
-      bindMaterialItemActions(course, canManage);
+    function wireMaterials(course, canManage, locked) {
+      bindMaterialItemActions(course, canManage, locked);
       if (!canManage) return;
       const uploadBtn = document.getElementById("matUploadBtn");
       if (!uploadBtn) return;
@@ -8036,9 +8044,10 @@
         reader.readAsDataURL(file);
       };
     }
-    function bindMaterialItemActions(course, canManage) {
+    function bindMaterialItemActions(course, canManage, locked) {
       document.querySelectorAll(".view-material").forEach(b => {
         b.onclick = () => {
+          if (locked) { toast("Complete the Pre-Assessment to unlock this material."); return; }
           const m = (course.materials || []).find(x => x.id === b.dataset.mid);
           if (m) openMaterialViewer(m);
         };
