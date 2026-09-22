@@ -2092,6 +2092,30 @@
       background: var(--green);
     }
 
+    /* ---------- Skill Matrix / Job Role page background ---------- */
+    .sm-page-wrap,
+    .jr-page-wrap {
+      background: #EFF6FB;
+      border-radius: 16px;
+      padding: 16px;
+      margin: -4px -4px 0;
+    }
+
+    [data-theme="dark"] .sm-page-wrap,
+    [data-theme="dark"] .jr-page-wrap {
+      background: #12203A;
+    }
+
+    .sm-page-wrap .data-table,
+    .jr-page-wrap .data-table {
+      background: #FFFFFF;
+    }
+
+    [data-theme="dark"] .sm-page-wrap .data-table,
+    [data-theme="dark"] .jr-page-wrap .data-table {
+      background: var(--card-solid);
+    }
+
     /* ---------- Table ---------- */
     .table-wrap {
       overflow-x: auto;
@@ -6492,6 +6516,7 @@
       const user = currentUser();
       const dept = isEmp ? user.department : (App.state.deptFilter || "All");
       mount.innerHTML = `
+    <div class="sm-page-wrap">
     <div class="page-head">
       <div><h1>Skill Matrix</h1><p class="muted">${isEmp ? "Your current skill levels vs required levels" : "Organization-wide skill capability matrix"}</p></div>
       <div class="mp-head-actions">
@@ -6506,6 +6531,7 @@
       <span class="pill pill-red">Critical Gap</span>
     </div>
     <div id="matrixTable"></div>
+    </div>
   `;
       if (!isEmp) document.getElementById("deptSelect").onchange = (e) => { App.state.deptFilter = e.target.value; renderSkillMatrix(mount); };
       document.getElementById("statusFilterSelect").onchange = (e) => { App.state.skillStatusFilter = e.target.value; renderSkillMatrix(mount); };
@@ -6711,6 +6737,7 @@
       const roleFilter = roleList.includes(App.state.jobRoleFilter) ? App.state.jobRoleFilter : "All";
       const roleOpts = `<option value="All">All Job Roles</option>` + roleList.map(r => `<option value="${r}" ${roleFilter === r ? 'selected' : ''}>${r}</option>`).join('');
       mount.innerHTML = `
+    <div class="jr-page-wrap">
     <div class="page-head">
       <div><h1>Job Role &amp; Skill Requirements</h1><p class="muted">Required skill level per job role — editing "Required Level" auto-updates the Skill Matrix &amp; Training Gap for all matching employees</p></div>
       <div style="display:flex; gap:10px; align-items:center;">
@@ -6725,7 +6752,8 @@
       <button class="btn-outline" id="jrUploadBtn">⬆ Upload Excel</button>
       <input type="file" id="jrFile" accept=".xlsx,.xls,.csv" style="display:none"/>
     </div>
-    <div id="jobRoleTable"></div>`;
+    <div id="jobRoleTable"></div>
+    </div>`;
       document.getElementById("jrDeptSelect").onchange = (e) => { App.state.jobRoleDeptFilter = e.target.value; App.state.jobRoleFilter = "All"; renderJobRoles(mount); };
       document.getElementById("jrRoleSelect").onchange = (e) => { App.state.jobRoleFilter = e.target.value; renderJobRoles(mount); };
       document.getElementById("jrSearch").oninput = (e) => {
